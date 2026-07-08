@@ -1,0 +1,16 @@
+# Pliki IDE
+.idea/
+*.iws
+*.iml
+*.ipr
+.vscode/
+
+# DOCKER #
+app.env
+db.env
+rabbit.env
+
+# System operacyjny
+.DS_Store
+Thumbs.db
+*.txt
