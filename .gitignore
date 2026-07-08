@@ -6,9 +6,10 @@
 .vscode/
 
 # DOCKER #
-app.env
-db.env
-rabbit.env
+.env.app
+.env.db
+.env
+.env.rabbit
 
 # System operacyjny
 .DS_Store
