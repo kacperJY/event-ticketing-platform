@@ -1,0 +1,25 @@
+services:
+  event-ticketing-platform-db:
+    image: postgres:17.10
+    container_name: "event-ticketing-platform-db"
+    environment:
+      - "POSTGRES_DB"
+      - "POSTGRES_USER"
+      - "POSTGRES_PASSWORD"
+    volumes:
+       - event-ticketing-platform-db-volume:/data
+    networks:
+      - main-network
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: [ "CMD-SHELL", "sh -c 'pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}'" ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+
+volumes:
+  event-ticketing-platform-db-volume:
+networks:
+  main-network:
