@@ -8,11 +8,16 @@ import org.springframework.security.authentication.AuthenticationProvider;
 import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
+import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import pl.kacper.sales_api.domain.user.UserRepository;
 
 @Configuration
@@ -20,14 +25,39 @@ import pl.kacper.sales_api.domain.user.UserRepository;
 @EnableMethodSecurity
 public class SecurityConfig {
 
-    private UserRepository userRepository;
+    private final UserRepository userRepository;
+    private final JWTService jwtService;
 
     @Autowired
-    public SecurityConfig(UserRepository userRepository) {
+    public SecurityConfig(UserRepository userRepository, JWTService jwtService) {
         this.userRepository = userRepository;
+        this.jwtService = jwtService;
     }
 
-    @Bean("authenticationManager")
+    @Bean("securityBean")
+    public SecurityFilterChain securityFilterChain(HttpSecurity httpSecurity){
+        return httpSecurity
+                .csrf(AbstractHttpConfigurer::disable)
+                .sessionManagement(httpSecuritySessionManagementConfigurer ->
+                        httpSecuritySessionManagementConfigurer.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .authorizeHttpRequests(authorize ->{
+                    authorize.requestMatchers("/auth/**").permitAll();
+
+                    authorize.requestMatchers("/api/v1/events").permitAll();
+                    authorize.requestMatchers("/api/v1/webhooks/**").permitAll();
+
+                    authorize.requestMatchers("/api/v1/orders/**").authenticated();
+
+
+                    authorize.requestMatchers("/api/v1/admin/**").hasRole("ADMIN");
+
+                })
+                .authenticationProvider(authenticationProvider())
+                .addFilterBefore(new JWTFilter(jwtService,userDetailsService()), UsernamePasswordAuthenticationFilter.class)
+                .build();
+    }
+
+    @Bean()
     public AuthenticationManager authenticationManager(AuthenticationConfiguration authenticationConfiguration){
         return authenticationConfiguration.getAuthenticationManager();
     }
