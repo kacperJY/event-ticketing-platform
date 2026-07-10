@@ -9,4 +9,6 @@ import java.util.UUID;
 public interface UserRepository extends ListCrudRepository<UserEntity, UUID> {
 
     Optional<UserEntity> findUserByEmail(String email);
+
+    boolean existsByEmail(String email);
 }
