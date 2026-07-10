@@ -1,4 +1,4 @@
-package pl.kacper.sales_api.security;
+package pl.kacper.sales_api.config;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
@@ -19,6 +19,8 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import pl.kacper.sales_api.domain.user.UserRepository;
+import pl.kacper.sales_api.security.JWTFilter;
+import pl.kacper.sales_api.security.JWTService;
 
 @Configuration
 @EnableWebSecurity
