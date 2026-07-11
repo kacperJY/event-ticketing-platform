@@ -29,3 +29,12 @@ spring:
   mvc:
     problemdetails:
       enabled: true
+
+rabbitmq:
+  sales-api:
+    queue-name:
+        create-event: "event-ticketing-platform.sales-api.queue.create-event"
+    exchange-name:
+        create-event: "event-ticketing-platform.sales-api.exchange.create-event"
+    routing-key:
+        create-event: "event-ticketing-platform.sales-api.routing-key.create-event"

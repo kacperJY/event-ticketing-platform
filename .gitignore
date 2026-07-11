@@ -10,6 +10,7 @@
 .env.db
 .env
 .env.rabbit
+rabbitmq
 
 # System operacyjny
 .DS_Store

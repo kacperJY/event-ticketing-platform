@@ -7,7 +7,7 @@ services:
       - "POSTGRES_USER"
       - "POSTGRES_PASSWORD"
     volumes:
-       - event-ticketing-platform-db-volume:/data
+       - event-ticketing-platform-db-volume:/var/lib/postgresql/data
     networks:
       - main-network
     ports:
@@ -17,9 +17,25 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
+  event-ticketing-platform-message-broker:
+    image: rabbitmq:4.3.2-management
+    container_name: "event-ticketing-platform-message-broker"
+    ports:
+      - "${RABBITMQ_MANAGEMENT_TCP_PORT}:${RABBITMQ_MANAGEMENT_TCP_PORT}"
+      - "${RABBITMQ_NODE_PORT}:${RABBITMQ_NODE_PORT}"
+    environment:
+      - "RABBITMQ_DEFAULT_USER=${RABBITMQ_DEFAULT_USER}"
+      - "RABBITMQ_DEFAULT_PASS=${RABBITMQ_DEFAULT_PASS}"
+      - "RABBITMQ_CONFIG_FILE=${RABBITMQ_CONFIG_FILE}"
+    volumes:
+      - ./rabbitmq:/config/rabbitmq
+      - event-ticketing-platform-message-broker-volume:/var/lib/rabbitmq
+    networks:
+      - main-network
 
 
 volumes:
   event-ticketing-platform-db-volume:
+  event-ticketing-platform-message-broker-volume:
 networks:
   main-network:
