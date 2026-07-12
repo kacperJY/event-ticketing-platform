@@ -29,12 +29,18 @@ spring:
   mvc:
     problemdetails:
       enabled: true
+  rabbitmq:
+    listener:
+      simple:
+        prefetch: 100
+
 
 rabbitmq:
   sales-api:
     queue-name:
         create-event: "event-ticketing-platform.sales-api.queue.create-event"
-    exchange-name:
-        create-event: "event-ticketing-platform.sales-api.exchange.create-event"
     routing-key:
         create-event: "event-ticketing-platform.sales-api.routing-key.create-event"
+
+  exchange-name:
+      exchange: "event-ticketing-platform.sales-api.exchange.create-event"
