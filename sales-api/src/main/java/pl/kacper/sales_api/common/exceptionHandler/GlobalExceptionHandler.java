@@ -1,5 +1,6 @@
 package pl.kacper.sales_api.common.exceptionHandler;
 
+import io.jsonwebtoken.ExpiredJwtException;
 import org.hibernate.OrderingMode;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
@@ -27,6 +28,18 @@ public class GlobalExceptionHandler {
         );
 
         problemDetail.setTitle("User registration failed");
+
+        return problemDetail;
+    }
+
+    @ExceptionHandler(ExpiredJwtException.class)
+    public ProblemDetail handleExpiredJwtException(Throwable throwable){
+        ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
+                HttpStatus.FORBIDDEN,
+                "Your session has expired. Try to login again to get access"
+        );
+
+        problemDetail.setTitle("Session expired");
 
         return problemDetail;
     }

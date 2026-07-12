@@ -1,6 +1,7 @@
 package pl.kacper.sales_api.config;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -18,6 +19,7 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.web.servlet.HandlerExceptionResolver;
 import pl.kacper.sales_api.domain.user.UserRepository;
 import pl.kacper.sales_api.security.JWTFilter;
 import pl.kacper.sales_api.security.JWTService;
@@ -29,11 +31,17 @@ public class SecurityConfig {
 
     private final UserRepository userRepository;
     private final JWTService jwtService;
+    private final HandlerExceptionResolver handlerExceptionResolver;
 
     @Autowired
-    public SecurityConfig(UserRepository userRepository, JWTService jwtService) {
+    public SecurityConfig(
+            UserRepository userRepository,
+            JWTService jwtService,
+            @Qualifier("handlerExceptionResolver") HandlerExceptionResolver handlerExceptionResolver
+    ) {
         this.userRepository = userRepository;
         this.jwtService = jwtService;
+        this.handlerExceptionResolver = handlerExceptionResolver;
     }
 
     @Bean("securityBean")
@@ -55,11 +63,11 @@ public class SecurityConfig {
 
                 })
                 .authenticationProvider(authenticationProvider())
-                .addFilterBefore(new JWTFilter(jwtService,userDetailsService()), UsernamePasswordAuthenticationFilter.class)
+                .addFilterBefore(new JWTFilter(jwtService,userDetailsService(),handlerExceptionResolver), UsernamePasswordAuthenticationFilter.class)
                 .build();
     }
 
-    @Bean()
+    @Bean
     public AuthenticationManager authenticationManager(AuthenticationConfiguration authenticationConfiguration){
         return authenticationConfiguration.getAuthenticationManager();
     }
