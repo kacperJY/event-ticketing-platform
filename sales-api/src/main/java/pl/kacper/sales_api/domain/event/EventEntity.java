@@ -5,7 +5,9 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import org.springframework.data.jpa.repository.config.EnableJpaAuditing;
 import pl.kacper.sales_api.domain.BaseEntity;
+import pl.kacper.sales_api.domain.event.dto.Address;
 
+import java.math.BigInteger;
 import java.time.LocalDateTime;
 
 @NoArgsConstructor
