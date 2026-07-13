@@ -8,8 +8,6 @@ import pl.kacper.sales_api.domain.BaseEntity;
 import pl.kacper.sales_api.domain.eventTicket.TicketEntity;
 import pl.kacper.sales_api.domain.user.UserEntity;
 
-import java.math.BigInteger;
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -40,10 +38,10 @@ public class OrderEntity extends BaseEntity {
     @Enumerated(EnumType.STRING)
     private OrderStatus orderStatus;
 
-    private BigInteger price;
+    private long price;
 
 
-    public OrderEntity(UserEntity purchaser, String paymentSessionId, OrderStatus orderStatus, BigInteger price) {
+    public OrderEntity(UserEntity purchaser, String paymentSessionId, OrderStatus orderStatus, long price) {
         this.purchaser = purchaser;
         this.paymentSessionId = paymentSessionId;
         this.orderStatus = orderStatus;

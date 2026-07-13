@@ -8,6 +8,7 @@ import pl.kacper.sales_api.domain.BaseEntity;
 import pl.kacper.sales_api.domain.event.dto.Address;
 
 import java.math.BigInteger;
+import java.time.Instant;
 import java.time.LocalDateTime;
 
 @NoArgsConstructor
@@ -20,10 +21,11 @@ public class EventEntity extends BaseEntity {
 
     @Id
     @GeneratedValue(strategy = GenerationType.SEQUENCE, generator = "eventGen")
-    @SequenceGenerator(name = "eventGen", sequenceName = "eventSeq", allocationSize = 50)
+    @SequenceGenerator(name = "eventGen", sequenceName = "events_seq", allocationSize = 50)
     @Column(name = "event_id")
     private Long eventId;
 
+    @Column(unique = true)
     private String name;
 
     private String description;
@@ -34,12 +36,12 @@ public class EventEntity extends BaseEntity {
     @Embedded
     private Address location;
 
-    private LocalDateTime eventDate;
+    private Instant eventDate;
 
     private int placesNumber;
 
 
-    public EventEntity(String name, String description, EventCategory eventCategory, Address location, LocalDateTime eventDate, int placesNumber) {
+    public EventEntity(String name, String description, EventCategory eventCategory, Address location, Instant eventDate, int placesNumber) {
         this.name = name;
         this.description = description;
         this.eventCategory = eventCategory;

@@ -6,6 +6,7 @@ import org.springframework.format.annotation.DateTimeFormat;
 import pl.kacper.sales_api.domain.event.EventCategory;
 
 import java.math.BigInteger;
+import java.time.Instant;
 import java.time.LocalDateTime;
 
 public record CreateEventRequestDto(
@@ -13,8 +14,8 @@ public record CreateEventRequestDto(
         @NotBlank String description,
         EventCategory eventCategory,
         Address location,
-        BigInteger seatPrice,
-        @DateTimeFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss.SSS") LocalDateTime eventDate,
+        long seatPrice,
+        Instant eventDate,
         @Positive int placesNumber
 ) {
 }
