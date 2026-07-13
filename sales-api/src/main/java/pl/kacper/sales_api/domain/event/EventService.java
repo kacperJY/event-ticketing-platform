@@ -10,8 +10,6 @@ import pl.kacper.sales_api.domain.event.dto.CreateEventMessageDto;
 import pl.kacper.sales_api.domain.event.dto.CreateEventRequestDto;
 import pl.kacper.sales_api.domain.event.dto.CreateEventResponseDto;
 
-import java.math.BigInteger;
-
 @Service
 public class EventService {
 
@@ -45,7 +43,9 @@ public class EventService {
 
         CreateEventMessageDto createEventMessageDto = new CreateEventMessageDto(
                 eventEntity.getEventId(),
-                PriceValueCalculator.calculateZlotyToPennies(createEventRequestDto.seatPrice())
+                PriceValueCalculator.calculateZlotyToPennies(createEventRequestDto.seatPrice()),
+                createEventRequestDto.placesNumber(),
+                createEventRequestDto.name()
         );
 
         rabbitTemplate.convertAndSend(exchangeName,createEventRoutingKey, createEventMessageDto);

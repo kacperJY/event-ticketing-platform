@@ -44,7 +44,7 @@ public class SecurityConfig {
         this.handlerExceptionResolver = handlerExceptionResolver;
     }
 
-    @Bean("securityBean")
+    @Bean(value = "securityBean")
     public SecurityFilterChain securityFilterChain(HttpSecurity httpSecurity){
         return httpSecurity
                 .csrf(AbstractHttpConfigurer::disable)

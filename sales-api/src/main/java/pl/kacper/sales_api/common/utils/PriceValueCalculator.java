@@ -4,7 +4,7 @@ import java.math.BigInteger;
 
 public class PriceValueCalculator {
 
-    public static BigInteger calculateZlotyToPennies(BigInteger zlotyValue){
-        return (new BigInteger("100").multiply(zlotyValue));
+    public static long calculateZlotyToPennies(long zlotyValue){
+        return zlotyValue * 100;
     }
 }

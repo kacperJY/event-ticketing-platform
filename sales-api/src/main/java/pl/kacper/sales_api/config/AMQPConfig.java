@@ -23,7 +23,6 @@ public class AMQPConfig {
     @Value("${rabbitmq.sales-api.routing-key.create-event}")
     private String createEventRoutingKey;
 
-
     @Bean
     public TopicExchange topicExchange(){
         return new TopicExchange(exchangeName,true,false);
