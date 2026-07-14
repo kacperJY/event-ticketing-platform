@@ -83,7 +83,7 @@ public class EventService {
         long totalElements = resultPage.getTotalElements();
         int numberOfElements = resultPage.getNumberOfElements();
 
-        if (totalElements > 0 && numberOfElements == 0)
+        if (page > totalPages)
             throw new IllegalArgumentException("Typed out of range page number: %d / %d ".formatted(page, totalPages));
 
 
@@ -91,6 +91,7 @@ public class EventService {
 
         return new ElementsPageDto<SimpleEventDto>(
                 page,
+                totalPages,
                 numberOfElements,
                 PAGE_SIZE,
                 totalElements,
