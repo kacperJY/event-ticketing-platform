@@ -8,19 +8,23 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import pl.kacper.sales_api.common.exception.NoSuchDbRecordException;
 import pl.kacper.sales_api.common.utils.PriceValueCalculator;
 import pl.kacper.sales_api.domain.dto.ElementsPageDto;
-import pl.kacper.sales_api.domain.event.dto.CreateEventMessageDto;
-import pl.kacper.sales_api.domain.event.dto.CreateEventRequestDto;
-import pl.kacper.sales_api.domain.event.dto.CreateEventResponseDto;
-import pl.kacper.sales_api.domain.event.dto.SimpleEventDto;
+import pl.kacper.sales_api.domain.event.dto.*;
+import pl.kacper.sales_api.domain.seat.SeatRepository;
+import pl.kacper.sales_api.domain.seat.SeatStatus;
 
 import java.util.List;
+import java.util.Optional;
 
 @Service
+@Transactional(readOnly = true)
 public class EventService {
 
     private final EventRepository eventRepository;
+    private final SeatRepository seatRepository;
     private final RabbitTemplate rabbitTemplate;
 
     @Value("${rabbitmq.sales-api.routing-key.create-event}")
@@ -32,12 +36,14 @@ public class EventService {
     private static final int PAGE_SIZE = 10;
 
     @Autowired
-    public EventService(EventRepository eventRepository, RabbitTemplate rabbitTemplate) {
+    public EventService(EventRepository eventRepository, SeatRepository seatRepository, RabbitTemplate rabbitTemplate) {
         this.eventRepository = eventRepository;
+        this.seatRepository = seatRepository;
         this.rabbitTemplate = rabbitTemplate;
     }
 
     @PreAuthorize("hasRole('ADMIN')")
+    @Transactional
     public CreateEventResponseDto createEvent(CreateEventRequestDto createEventRequestDto) {
         EventEntity eventEntity = new EventEntity(
                 createEventRequestDto.name(),
@@ -89,6 +95,24 @@ public class EventService {
                 PAGE_SIZE,
                 totalElements,
                 content
+        );
+    }
+
+    public DetailEventDto getEventDetails(Long eventId){
+        EventEntity eventEntity = eventRepository.findById(eventId).
+                orElseThrow(() -> new NoSuchDbRecordException("Cannot find event record by passed ID. Probably passed invalid ID"));
+
+        int counter = seatRepository.countByEvent_EventIdAndSeatStatus(eventId, SeatStatus.AVAILABLE);
+
+        return new DetailEventDto(
+                eventEntity.getEventId(),
+                eventEntity.getName(),
+                eventEntity.getDescription(),
+                eventEntity.getEventCategory(),
+                eventEntity.getLocation(),
+                eventEntity.getEventDate(),
+                eventEntity.getPlacesNumber(),
+                counter
         );
     }
 }

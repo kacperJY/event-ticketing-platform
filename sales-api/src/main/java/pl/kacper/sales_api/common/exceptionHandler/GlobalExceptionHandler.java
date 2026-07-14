@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import pl.kacper.sales_api.common.dto.InvalidParamDto;
 import pl.kacper.sales_api.common.exception.DuplicateUsernameException;
+import pl.kacper.sales_api.common.exception.NoSuchDbRecordException;
 
 import java.util.List;
 
@@ -40,6 +41,18 @@ public class GlobalExceptionHandler {
         );
 
         problemDetail.setTitle("Invalid arguments");
+
+        return problemDetail;
+    }
+
+    @ExceptionHandler({NoSuchDbRecordException.class})
+    public ProblemDetail handleNoResourceException(Throwable throwable){
+        ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
+                HttpStatus.NOT_FOUND,
+                throwable.getMessage()
+        );
+
+        problemDetail.setTitle("Resource not exists");
 
         return problemDetail;
     }

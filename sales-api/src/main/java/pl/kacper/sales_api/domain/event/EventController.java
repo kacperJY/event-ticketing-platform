@@ -8,6 +8,7 @@ import org.springframework.web.bind.annotation.*;
 import pl.kacper.sales_api.domain.dto.ElementsPageDto;
 import pl.kacper.sales_api.domain.event.dto.CreateEventRequestDto;
 import pl.kacper.sales_api.domain.event.dto.CreateEventResponseDto;
+import pl.kacper.sales_api.domain.event.dto.DetailEventDto;
 import pl.kacper.sales_api.domain.event.dto.SimpleEventDto;
 
 @RestController
@@ -36,5 +37,12 @@ public class EventController {
     ){
         ElementsPageDto<SimpleEventDto> events = eventService.getEvents(city, page);
         return ResponseEntity.ok(events);
+    }
+
+    @GetMapping("/event/{eventID}")
+    public ResponseEntity<DetailEventDto> getEventDetails(@PathVariable("eventID") Long eventId){
+
+        DetailEventDto eventDetails = eventService.getEventDetails(eventId);
+        return ResponseEntity.ok(eventDetails);
     }
 }

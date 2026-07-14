@@ -54,6 +54,7 @@ public class SecurityConfig {
                     authorize.requestMatchers("/auth/**").permitAll();
 
                     authorize.requestMatchers("/api/v1/event").permitAll();
+                    authorize.requestMatchers("/api/v1/event/{eventId}").permitAll();
                     authorize.requestMatchers("/api/v1/webhooks/**").permitAll();
 
                     authorize.requestMatchers("/api/v1/orders/**").authenticated();
