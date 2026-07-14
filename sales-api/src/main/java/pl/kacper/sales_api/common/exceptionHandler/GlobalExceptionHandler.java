@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import pl.kacper.sales_api.common.dto.InvalidParamDto;
 import pl.kacper.sales_api.common.exception.DuplicateUsernameException;
+import pl.kacper.sales_api.common.exception.NoSuchDbRecordException;
 
 import java.util.List;
 
@@ -21,7 +22,7 @@ import java.util.List;
 public class GlobalExceptionHandler {
 
     @ExceptionHandler(DuplicateUsernameException.class)
-    public ProblemDetail handleDuplicateUsernameException(Throwable throwable){
+    public ProblemDetail handleDuplicateUsernameException(Throwable throwable) {
         ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
                 HttpStatus.CONFLICT,
                 throwable.getMessage()
@@ -32,8 +33,32 @@ public class GlobalExceptionHandler {
         return problemDetail;
     }
 
+    @ExceptionHandler({IllegalArgumentException.class})
+    public ProblemDetail handleIllegalArgumentException(Throwable throwable) {
+        ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
+                HttpStatus.BAD_REQUEST,
+                throwable.getMessage()
+        );
+
+        problemDetail.setTitle("Invalid arguments");
+
+        return problemDetail;
+    }
+
+    @ExceptionHandler({NoSuchDbRecordException.class})
+    public ProblemDetail handleNoResourceException(Throwable throwable){
+        ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
+                HttpStatus.NOT_FOUND,
+                throwable.getMessage()
+        );
+
+        problemDetail.setTitle("Resource not exists");
+
+        return problemDetail;
+    }
+
     @ExceptionHandler(ExpiredJwtException.class)
-    public ProblemDetail handleExpiredJwtException(Throwable throwable){
+    public ProblemDetail handleExpiredJwtException(Throwable throwable) {
         ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
                 HttpStatus.FORBIDDEN,
                 "Your session has expired. Try to login again to get access"
@@ -45,7 +70,7 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler({MethodArgumentNotValidException.class})
-    public ProblemDetail handleParamValidationException(BindingResult bindingResult){
+    public ProblemDetail handleParamValidationException(BindingResult bindingResult) {
         ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
                 HttpStatus.BAD_REQUEST,
                 "Request contains invalid parameters"
@@ -58,12 +83,12 @@ public class GlobalExceptionHandler {
                 .map(this::convertToInvalidParamDto)
                 .toList();
 
-        problemDetail.setProperty("invalidParams",invalidParamList);
+        problemDetail.setProperty("invalidParams", invalidParamList);
 
         return problemDetail;
     }
 
-    private InvalidParamDto convertToInvalidParamDto(FieldError fieldError){
+    private InvalidParamDto convertToInvalidParamDto(FieldError fieldError) {
         return new InvalidParamDto(
                 fieldError.getField(),
                 fieldError.getDefaultMessage()

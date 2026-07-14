@@ -17,7 +17,7 @@ CREATE TABLE public.events (
                                postal_code varchar(255) NULL,
                                "name" varchar(255) NULL UNIQUE,
                                places_number int4 NOT NULL,
-                               CONSTRAINT events_event_category_check CHECK (((event_category)::text = ANY ((ARRAY['CONCERT'::character varying, 'SPORT'::character varying, 'CINEMA'::character varying, 'THEATER'::character varying, 'CONFERENCE'::character varying])::text[]))),
+                               CONSTRAINT events_event_category_check CHECK (((event_category)::text = ANY ((ARRAY['CONCERT'::character varying, 'SPORT'::character varying, 'CINEMA'::character varying, 'THEATER'::character varying, 'CONFERENCE'::character varying, 'FESTIVAL'::character varying])::text[]))),
 	CONSTRAINT events_pkey PRIMARY KEY (event_id)
 );
 
