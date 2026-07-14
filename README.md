@@ -105,7 +105,7 @@ Planned:
 - Maven
 
 ## 🛠️ How to run locally (Development Mode)
-> **Note:** Full containerization (Application Dockerfile, RabbitMQ, Mail Server) is planned for the upcoming phases. Currently, only the PostgreSQL database is containerized for local development.
+> **Note:** Full containerization (Application Dockerfile, RabbitMQ, Mail Server) is planned for the upcoming phases. Currently, only the PostgreSQL database and RabbitMQ are containerized for local development.
 
 1. Clone the repository.
 2. Copy the `.env.example` file and rename it to `.env`, then fill in your local variables (e.g., JWT secret, DB credentials).
