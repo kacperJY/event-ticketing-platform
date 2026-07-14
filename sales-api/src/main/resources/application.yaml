@@ -10,7 +10,7 @@ spring:
         prepareThreshold: 5
   jpa:
     hibernate:
-      ddl-auto: update
+      ddl-auto: validate
     database: postgresql
     generate-ddl: true
     show-sql: true
@@ -22,19 +22,30 @@ spring:
         order_inserts: true
         show_sql: true
         jdbc:
-          batch_size: 50
+          batch_size: ${database.batch-size}
   threads:
     virtual:
       enabled: true
   mvc:
     problemdetails:
       enabled: true
+  rabbitmq:
+    listener:
+      simple:
+        prefetch: 100
+  flyway:
+    locations: classpath:db/migration
+    enabled: true
+
+
+database:
+  batch-size: 50
 
 rabbitmq:
   sales-api:
     queue-name:
         create-event: "event-ticketing-platform.sales-api.queue.create-event"
-    exchange-name:
-        create-event: "event-ticketing-platform.sales-api.exchange.create-event"
     routing-key:
         create-event: "event-ticketing-platform.sales-api.routing-key.create-event"
+  exchange-name:
+      exchange: "event-ticketing-platform.sales-api.exchange.create-event"

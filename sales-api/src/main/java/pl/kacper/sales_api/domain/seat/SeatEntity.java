@@ -7,8 +7,6 @@ import org.springframework.data.jpa.repository.config.EnableJpaAuditing;
 import pl.kacper.sales_api.domain.BaseEntity;
 import pl.kacper.sales_api.domain.event.EventEntity;
 
-import java.math.BigInteger;
-
 @NoArgsConstructor
 @Getter
 
@@ -19,7 +17,7 @@ public class SeatEntity extends BaseEntity {
 
     @Id
     @GeneratedValue(strategy = GenerationType.SEQUENCE, generator = "seatGen")
-    @SequenceGenerator(name = "seatGen", sequenceName = "seatSeq", allocationSize = 50)
+    @SequenceGenerator(name = "seatGen", sequenceName = "seats_seq", allocationSize = 50)
     @Column(name = "seat_id")
     private Long seatId;
 
@@ -29,16 +27,17 @@ public class SeatEntity extends BaseEntity {
 
     private String seatNumber;
 
-    private BigInteger price;
+    private long price;
 
     @Enumerated(EnumType.STRING)
     private SeatStatus seatStatus;
 
 
-    public SeatEntity(EventEntity event, String seatNumber, BigInteger price, SeatStatus seatStatus) {
+    public SeatEntity(EventEntity event, String seatNumber, long price, SeatStatus seatStatus) {
         this.event = event;
         this.seatNumber = seatNumber;
         this.price = price;
         this.seatStatus = seatStatus;
     }
+
 }

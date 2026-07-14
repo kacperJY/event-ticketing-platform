@@ -41,9 +41,9 @@ public class TicketEntity extends BaseEntity {
     @JoinColumn(name = "seat_id")
     private SeatEntity seat;
 
-    private BigInteger price;
+    private long price;
 
-    public TicketEntity(BigInteger price, SeatEntity seat, OrderEntity order, EventEntity event) {
+    public TicketEntity(long price, SeatEntity seat, OrderEntity order, EventEntity event) {
         this.price = price;
         this.seat = seat;
         this.order = order;
