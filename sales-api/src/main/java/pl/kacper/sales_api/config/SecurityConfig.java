@@ -53,7 +53,7 @@ public class SecurityConfig {
                 .authorizeHttpRequests(authorize ->{
                     authorize.requestMatchers("/auth/**").permitAll();
 
-                    authorize.requestMatchers("/api/v1/events").permitAll();
+                    authorize.requestMatchers("/api/v1/event").permitAll();
                     authorize.requestMatchers("/api/v1/webhooks/**").permitAll();
 
                     authorize.requestMatchers("/api/v1/orders/**").authenticated();

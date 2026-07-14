@@ -5,5 +5,6 @@ public enum EventCategory {
     SPORT,
     CINEMA,
     THEATER,
-    CONFERENCE
+    CONFERENCE,
+    FESTIVAL
 }
