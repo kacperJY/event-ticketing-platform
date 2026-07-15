@@ -3,6 +3,7 @@ package pl.kacper.sales_api.domain.seat;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import lombok.Setter;
 import org.springframework.data.jpa.repository.config.EnableJpaAuditing;
 import pl.kacper.sales_api.domain.BaseEntity;
 import pl.kacper.sales_api.domain.event.EventEntity;
@@ -29,6 +30,7 @@ public class SeatEntity extends BaseEntity {
 
     private long price;
 
+    @Setter
     @Enumerated(EnumType.STRING)
     private SeatStatus seatStatus;
 

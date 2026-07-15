@@ -57,7 +57,7 @@ public class SecurityConfig {
                     authorize.requestMatchers("/api/v1/event/{eventId}").permitAll();
                     authorize.requestMatchers("/api/v1/webhooks/**").permitAll();
 
-                    authorize.requestMatchers("/api/v1/orders/**").authenticated();
+                    authorize.requestMatchers("/api/v1/order/**").authenticated();
 
 
                     authorize.requestMatchers("/api/v1/admin/**").hasRole("ADMIN");

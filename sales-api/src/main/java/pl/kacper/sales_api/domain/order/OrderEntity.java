@@ -3,6 +3,7 @@ package pl.kacper.sales_api.domain.order;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import lombok.Setter;
 import org.springframework.data.jpa.repository.config.EnableJpaAuditing;
 import pl.kacper.sales_api.domain.BaseEntity;
 import pl.kacper.sales_api.domain.eventTicket.TicketEntity;
@@ -25,19 +26,23 @@ public class OrderEntity extends BaseEntity {
     @Column(name = "order_id")
     private UUID orderId;
 
+    @Setter
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "user_id")
     private UserEntity purchaser;
 
-    @OneToMany(fetch = FetchType.LAZY, mappedBy = "order")
+    @OneToMany(fetch = FetchType.LAZY, mappedBy = "order", cascade = CascadeType.PERSIST)
     private List<TicketEntity> ticketList = new ArrayList<>();
 
+    @Setter
     @Column(unique = true)
     private String paymentSessionId;
 
+    @Setter
     @Enumerated(EnumType.STRING)
     private OrderStatus orderStatus;
 
+    @Setter
     private long price;
 
 

@@ -44,9 +44,9 @@ CREATE TABLE public.orders (
                                payment_session_id varchar(255) NULL,
                                price int8 NULL,
                                user_id uuid NULL,
-                               CONSTRAINT orders_order_status_check CHECK (((order_status)::text = ANY ((ARRAY['PENDING'::character varying, 'PAID'::character varying, 'REFUNDED'::character varying])::text[]))),
+                               CONSTRAINT orders_order_status_check CHECK (((order_status)::text = ANY ((ARRAY['PENDING'::character varying, 'PAID'::character varying,'CANCELED'::character varying, 'REFUNDED'::character varying])::text[]))),
 	CONSTRAINT orders_pkey PRIMARY KEY (order_id),
-	CONSTRAINT uniqie_orders_payment_session_id UNIQUE (payment_session_id),
+	CONSTRAINT unique_orders_payment_session_id UNIQUE (payment_session_id),
 	CONSTRAINT fk_orders_user_id FOREIGN KEY (user_id) REFERENCES public.users(user_id)
 );
 
