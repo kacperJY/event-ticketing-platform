@@ -1,8 +1,6 @@
 package pl.kacper.sales_api.domain.order;
 
-import org.jspecify.annotations.NonNull;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.security.core.userdetails.UserDetails;
@@ -13,7 +11,6 @@ import pl.kacper.sales_api.common.exception.NoSuchQuantityException;
 import pl.kacper.sales_api.domain.event.EventEntity;
 import pl.kacper.sales_api.domain.event.EventRepository;
 import pl.kacper.sales_api.domain.eventTicket.TicketEntity;
-import pl.kacper.sales_api.domain.eventTicket.TicketRepository;
 import pl.kacper.sales_api.domain.order.dto.OrderRequestDto;
 import pl.kacper.sales_api.domain.order.dto.OrderResponseDto;
 import pl.kacper.sales_api.domain.order.dto.TicketRequestDto;
@@ -34,16 +31,14 @@ public class OrderService {
 
     private final SeatRepository seatRepository;
     private final OrderRepository orderRepository;
-    private final TicketRepository ticketRepository;
     private final EventRepository eventRepository;
     private final UserRepository userRepository;
 
 
     @Autowired
-    public OrderService(SeatRepository seatRepository, OrderRepository orderRepository, TicketRepository ticketRepository, EventRepository eventRepository, UserRepository userRepository) {
+    public OrderService(SeatRepository seatRepository, OrderRepository orderRepository, EventRepository eventRepository, UserRepository userRepository) {
         this.seatRepository = seatRepository;
         this.orderRepository = orderRepository;
-        this.ticketRepository = ticketRepository;
         this.eventRepository = eventRepository;
         this.userRepository = userRepository;
     }
@@ -67,32 +62,15 @@ public class OrderService {
                 orElseThrow(() -> new UsernameNotFoundException("Invalid username. Cannot find user with such username: " + userDetails.getUsername()));
 
 
-        Map<EventEntity, List<SeatEntity>> seatEntityListOfEventMap = new HashMap<>();
-
-        for (TicketRequestDto ticket : tickets) {
-            Long eventId = ticket.eventId();
-            int quantity = ticket.quantity();
-            PageRequest pageRequest = PageRequest.of(0, quantity, Sort.by("seatId").ascending());
-
-            List<SeatEntity> seatEntityList = seatRepository.findSeatByEventIdWithLocking(eventId, SeatStatus.AVAILABLE, pageRequest);
-
-            if (seatEntityList.size() != quantity)
-                throw new NoSuchQuantityException("There are not enough available tickets for event %d. Expected %d but available %d. Order will not be completed"
-                        .formatted(eventId, quantity, seatEntityList.size()));
-
-            EventEntity eventEntityReference = eventRepository.getReferenceById(eventId);
-
-
-            seatEntityListOfEventMap.put(eventEntityReference, seatEntityList);
-
-        }
+        Map<Long, List<SeatEntity>> seatEntitiesByEventId = mapAvailablePlacesWithEventEntities(tickets);
 
         long fullPrice = 0;
         OrderEntity orderEntity = new OrderEntity();
-        for (Map.Entry<EventEntity, List<SeatEntity>> entry : seatEntityListOfEventMap.entrySet()) {
-            EventEntity eventEntityReference = entry.getKey();
+        for (Map.Entry<Long, List<SeatEntity>> entry : seatEntitiesByEventId.entrySet()) {
+            Long eventId = entry.getKey();
+            EventEntity eventEntityReference = eventRepository.getReferenceById(eventId);
             for (SeatEntity seatEntity : entry.getValue()) {
-                seatEntity.setSeatStatus(SeatStatus.LOCKED_FOR_CHECKOUT);
+                seatEntity.setSeatStatus(SeatStatus.LOCKED_FOR_CHECKOUT); // DirtyChecking - not explicit seatRepository.save()
                 fullPrice += seatEntity.getPrice();
                 TicketEntity ticketEntity = createTicketEntity(seatEntity.getPrice(), seatEntity, eventEntityReference);
                 orderEntity.addTicketToOrder(ticketEntity);
@@ -115,5 +93,27 @@ public class OrderService {
 
     private TicketEntity createTicketEntity(long price, SeatEntity seat, EventEntity eventEntity) {
         return new TicketEntity(price, seat, eventEntity);
+    }
+
+
+    private Map<Long, List<SeatEntity>> mapAvailablePlacesWithEventEntities(List<TicketRequestDto> tickets) {
+        Map<Long, List<SeatEntity>> seatEntityListOfEventMap = new HashMap<>();
+
+        for (TicketRequestDto ticket : tickets) {
+            Long eventId = ticket.eventId();
+            int quantity = ticket.quantity();
+            PageRequest pageRequest = PageRequest.of(0, quantity, Sort.by("seatId").ascending());
+
+            List<SeatEntity> seatEntityList = seatRepository.findSeatByEventIdWithLocking(eventId, SeatStatus.AVAILABLE, pageRequest);
+
+            if (seatEntityList.size() != quantity)
+                throw new NoSuchQuantityException("There are not enough available tickets for event ID=%d. Expected %d but available %d. Order will not be completed"
+                        .formatted(eventId, quantity, seatEntityList.size()));
+
+            seatEntityListOfEventMap.put(eventId, seatEntityList);
+
+        }
+
+        return seatEntityListOfEventMap;
     }
 }
