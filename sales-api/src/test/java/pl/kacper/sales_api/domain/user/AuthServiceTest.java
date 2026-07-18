@@ -13,8 +13,6 @@ import pl.kacper.sales_api.domain.user.dto.UserRegisterDto;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import java.util.Set;
-
 @TestInstance(TestInstance.Lifecycle.PER_METHOD)
 @ExtendWith(MockitoExtension.class)
 public class AuthServiceTest {
@@ -40,14 +38,14 @@ public class AuthServiceTest {
 
         Mockito.when(userRepository.existsByEmail(userRegisterDto.email())).thenReturn(true);
 
-        assertThatThrownBy(() -> authService.register(userRegisterDto))
+        assertThatThrownBy(() -> authService.registerUser(userRegisterDto))
                 .hasMessageContaining("already exists")
                 .isInstanceOf(DuplicateUsernameException.class);
     }
 
     @Test
     @DisplayName("Should register user with unique email")
-    void shouldRegisterUserWithUniqueEmail(){
+    void shouldRegisterUserUserWithUniqueEmail(){
         UserRegisterDto userRegisterDto = new UserRegisterDto(
                 "kacper@gmail.com",
                 "Kacper123",
@@ -58,7 +56,7 @@ public class AuthServiceTest {
         Mockito.when(userRepository.existsByEmail(userRegisterDto.email())).thenReturn(false);
         Mockito.when(passwordEncoder.encode(userRegisterDto.password())).thenReturn(encodedPassword);
 
-        authService.register(userRegisterDto);
+        authService.registerUser(userRegisterDto);
 
         ArgumentCaptor<UserEntity> userEntityArgumentCaptor = ArgumentCaptor.forClass(UserEntity.class);
         Mockito.verify(userRepository,Mockito.times(1)).save(userEntityArgumentCaptor.capture());

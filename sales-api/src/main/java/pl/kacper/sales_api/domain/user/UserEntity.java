@@ -3,6 +3,7 @@ package pl.kacper.sales_api.domain.user;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import lombok.Setter;
 import org.springframework.data.jpa.repository.config.EnableJpaAuditing;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
@@ -36,6 +37,7 @@ public class UserEntity extends BaseEntity implements UserDetails {
 
     private String lastname;
 
+    @Setter
     @Enumerated(EnumType.STRING)
     private Role role;
 
@@ -47,7 +49,6 @@ public class UserEntity extends BaseEntity implements UserDetails {
         this.firstname = firstname;
         this.lastname = lastname;
 
-        this.role = Role.ROLE_USER;
         this.isActive = true;
     }
 
