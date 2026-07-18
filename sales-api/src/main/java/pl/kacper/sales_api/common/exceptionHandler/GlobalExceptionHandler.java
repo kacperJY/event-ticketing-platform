@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import pl.kacper.sales_api.common.dto.InvalidParamDto;
 import pl.kacper.sales_api.common.exception.DuplicateUsernameException;
 import pl.kacper.sales_api.common.exception.NoSuchDbRecordException;
+import pl.kacper.sales_api.common.exception.NoSuchQuantityException;
 
 import java.util.List;
 
@@ -29,6 +30,18 @@ public class GlobalExceptionHandler {
         );
 
         problemDetail.setTitle("User registration failed");
+
+        return problemDetail;
+    }
+
+    @ExceptionHandler({NoSuchQuantityException.class})
+    public ProblemDetail handleNoSuchQuantityException(Throwable throwable) {
+        ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
+                HttpStatus.CONFLICT,
+                throwable.getMessage()
+        );
+
+        problemDetail.setTitle("Not enough available resources");
 
         return problemDetail;
     }

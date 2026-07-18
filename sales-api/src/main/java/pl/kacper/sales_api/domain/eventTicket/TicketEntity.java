@@ -43,10 +43,9 @@ public class TicketEntity extends BaseEntity {
 
     private long price;
 
-    public TicketEntity(long price, SeatEntity seat, OrderEntity order, EventEntity event) {
+    public TicketEntity(long price, SeatEntity seat, EventEntity event) {
         this.price = price;
         this.seat = seat;
-        this.order = order;
         this.event = event;
     }
 
