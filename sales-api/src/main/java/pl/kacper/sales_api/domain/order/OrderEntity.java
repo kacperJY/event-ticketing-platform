@@ -4,7 +4,6 @@ import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
-import org.springframework.data.jpa.repository.config.EnableJpaAuditing;
 import pl.kacper.sales_api.domain.BaseEntity;
 import pl.kacper.sales_api.domain.eventTicket.TicketEntity;
 import pl.kacper.sales_api.domain.user.UserEntity;
@@ -18,7 +17,6 @@ import java.util.UUID;
 
 @Entity
 @Table(name = "orders")
-@EnableJpaAuditing
 public class OrderEntity extends BaseEntity {
 
     @Id

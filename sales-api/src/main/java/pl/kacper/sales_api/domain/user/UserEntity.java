@@ -20,7 +20,6 @@ import java.util.UUID;
 
 @Entity
 @Table(name = "users")
-@EnableJpaAuditing
 public class UserEntity extends BaseEntity implements UserDetails {
 
     @Id

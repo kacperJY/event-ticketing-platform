@@ -4,15 +4,11 @@ import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
-import org.springframework.data.annotation.CreatedDate;
-import org.springframework.data.annotation.LastModifiedDate;
-import org.springframework.data.jpa.repository.config.EnableJpaAuditing;
 import pl.kacper.sales_api.domain.BaseEntity;
 import pl.kacper.sales_api.domain.event.EventEntity;
 import pl.kacper.sales_api.domain.order.OrderEntity;
 import pl.kacper.sales_api.domain.seat.SeatEntity;
 
-import java.math.BigInteger;
 import java.util.UUID;
 
 @NoArgsConstructor
@@ -20,7 +16,6 @@ import java.util.UUID;
 
 @Entity
 @Table(name = "tickets")
-@EnableJpaAuditing
 public class TicketEntity extends BaseEntity {
 
     @Id
