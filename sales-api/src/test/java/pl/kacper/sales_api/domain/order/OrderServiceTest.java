@@ -1,4 +1,4 @@
-package pl.kacper.sales_api.domain.seat;
+package pl.kacper.sales_api.domain.order;
 
 import org.assertj.core.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -11,11 +11,11 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import pl.kacper.sales_api.common.exception.NoSuchQuantityException;
 import pl.kacper.sales_api.domain.event.EventRepository;
-import pl.kacper.sales_api.domain.order.OrderEntity;
-import pl.kacper.sales_api.domain.order.OrderRepository;
-import pl.kacper.sales_api.domain.order.OrderService;
 import pl.kacper.sales_api.domain.order.dto.OrderRequestDto;
 import pl.kacper.sales_api.domain.order.dto.TicketRequestDto;
+import pl.kacper.sales_api.domain.seat.SeatEntity;
+import pl.kacper.sales_api.domain.seat.SeatRepository;
+import pl.kacper.sales_api.domain.seat.SeatStatus;
 import pl.kacper.sales_api.domain.user.UserEntity;
 import pl.kacper.sales_api.domain.user.UserRepository;
 

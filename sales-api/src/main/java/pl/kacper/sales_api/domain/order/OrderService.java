@@ -20,10 +20,7 @@ import pl.kacper.sales_api.domain.seat.SeatStatus;
 import pl.kacper.sales_api.domain.user.UserEntity;
 import pl.kacper.sales_api.domain.user.UserRepository;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 @Service
 @Transactional(readOnly = true)
@@ -45,7 +42,10 @@ public class OrderService {
 
     @Transactional
     public OrderResponseDto createOrder(OrderRequestDto orderRequestDto, UserDetails userDetails) {
-        List<TicketRequestDto> tickets = orderRequestDto.tickets();
+        List<TicketRequestDto> ticketsDto = orderRequestDto.tickets();
+
+        List<TicketRequestDto> tickets = new ArrayList<>(ticketsDto);
+        tickets.sort(Comparator.comparing(TicketRequestDto::eventId));
 
         List<Long> eventIdList = tickets.stream()
                 .map(TicketRequestDto::eventId)
@@ -55,7 +55,7 @@ public class OrderService {
 
         // Safe-check if all event exists - to prevent fetching SeatEntity record for no reason
         if (existedEvents != eventIdList.size())
-            throw new IllegalArgumentException("Some of the event IDs are incorrect or passed duplicate event ID. Provided %d, but we found %d."
+            throw new IllegalArgumentException("Some of the event IDs are incorrect or passed duplicate event ID. Provided %d, but founded %d."
                     .formatted(eventIdList.size(), existedEvents));
 
         UserEntity userEntity = userRepository.findUserByEmail(userDetails.getUsername()).
