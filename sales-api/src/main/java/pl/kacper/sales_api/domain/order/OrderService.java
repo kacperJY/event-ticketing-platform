@@ -55,7 +55,7 @@ public class OrderService {
 
         // Safe-check if all event exists - to prevent fetching SeatEntity record for no reason
         if (existedEvents != eventIdList.size())
-            throw new IllegalArgumentException("Some of the event IDs are incorrect or passed duplicate event ID. Provided %d, but we found %d."
+            throw new IllegalArgumentException("Some of the event IDs are incorrect or passed duplicate event ID. Provided %d, but founded %d."
                     .formatted(eventIdList.size(), existedEvents));
 
         UserEntity userEntity = userRepository.findUserByEmail(userDetails.getUsername()).
