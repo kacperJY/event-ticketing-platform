@@ -1,8 +1,11 @@
 package pl.kacper.sales_api.domain.event;
 
+import org.springframework.amqp.core.MessagePostProcessor;
+import org.springframework.amqp.rabbit.connection.CorrelationData;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.retry.RetryTemplate;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -13,8 +16,10 @@ import pl.kacper.sales_api.common.exception.NoSuchDbRecordException;
 import pl.kacper.sales_api.common.utils.PriceValueCalculator;
 import pl.kacper.sales_api.domain.dto.ElementsPageDto;
 import pl.kacper.sales_api.domain.event.dto.*;
+import pl.kacper.sales_api.domain.message.MessagePublisher;
 import pl.kacper.sales_api.domain.seat.SeatRepository;
 import pl.kacper.sales_api.domain.seat.SeatStatus;
+import tools.jackson.databind.ObjectMapper;
 
 import java.util.List;
 import java.util.Optional;
@@ -25,7 +30,8 @@ public class EventService {
 
     private final EventRepository eventRepository;
     private final SeatRepository seatRepository;
-    private final RabbitTemplate rabbitTemplate;
+    private final EventTransactionService eventTransactionService;
+    private final MessagePublisher messagePublisher;
 
     @Value("${rabbitmq.sales-api.routing-key.create-event}")
     private String createEventRoutingKey;
@@ -35,35 +41,21 @@ public class EventService {
 
     private static final int PAGE_SIZE = 10;
 
-    @Autowired
-    public EventService(EventRepository eventRepository, SeatRepository seatRepository, RabbitTemplate rabbitTemplate) {
+    public EventService(EventRepository eventRepository, SeatRepository seatRepository, EventTransactionService eventTransactionService, MessagePublisher messagePublisher) {
         this.eventRepository = eventRepository;
         this.seatRepository = seatRepository;
-        this.rabbitTemplate = rabbitTemplate;
+        this.eventTransactionService = eventTransactionService;
+        this.messagePublisher = messagePublisher;
     }
 
     @PreAuthorize("hasRole('ADMIN')")
-    @Transactional
     public CreateEventResponseDto createEvent(CreateEventRequestDto createEventRequestDto) {
-        EventEntity eventEntity = new EventEntity(
-                createEventRequestDto.name(),
-                createEventRequestDto.description(),
-                createEventRequestDto.eventCategory(),
-                createEventRequestDto.location(),
-                createEventRequestDto.eventDate(),
-                createEventRequestDto.placesNumber()
-        );
 
-        eventRepository.save(eventEntity);
+        // Transaction separated
+        EventEntity eventEntity = eventTransactionService.saveEvent(createEventRequestDto);
 
-        CreateEventMessageDto createEventMessageDto = new CreateEventMessageDto(
-                eventEntity.getEventId(),
-                PriceValueCalculator.calculateZlotyToPennies(createEventRequestDto.seatPrice()),
-                createEventRequestDto.placesNumber(),
-                createEventRequestDto.name()
-        );
-
-        rabbitTemplate.convertAndSend(exchangeName, createEventRoutingKey, createEventMessageDto);
+        // INSTANT-SEND after create
+        // IN PROGRESS
 
         return new CreateEventResponseDto(eventEntity.getEventId());
     }
@@ -99,7 +91,7 @@ public class EventService {
         );
     }
 
-    public DetailEventDto getEventDetails(Long eventId){
+    public DetailEventDto getEventDetails(Long eventId) {
         EventEntity eventEntity = eventRepository.findById(eventId).
                 orElseThrow(() -> new NoSuchDbRecordException("Cannot find event record by passed ID. Probably passed invalid ID"));
 

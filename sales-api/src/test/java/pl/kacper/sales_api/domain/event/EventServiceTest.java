@@ -1,7 +1,6 @@
 package pl.kacper.sales_api.domain.event;
 
 import org.assertj.core.api.Assertions;
-import org.assertj.core.api.ThrowableAssert;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
@@ -14,17 +13,16 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.test.util.ReflectionTestUtils;
 import pl.kacper.sales_api.common.exception.NoSuchDbRecordException;
 import pl.kacper.sales_api.domain.dto.ElementsPageDto;
-import pl.kacper.sales_api.domain.event.dto.CreateEventMessageDto;
 import pl.kacper.sales_api.domain.event.dto.CreateEventRequestDto;
 import pl.kacper.sales_api.domain.event.dto.DetailEventDto;
 import pl.kacper.sales_api.domain.event.dto.SimpleEventDto;
+import pl.kacper.sales_api.domain.message.dto.event.CreateEventMessagePayloadDto;
 import pl.kacper.sales_api.domain.seat.SeatRepository;
 import pl.kacper.sales_api.domain.seat.SeatStatus;
 
 import java.util.List;
 import java.util.Optional;
 
-import static org.assertj.core.api.Assertions.as;
 import static org.assertj.core.api.Assertions.assertThat;
 
 @TestInstance(TestInstance.Lifecycle.PER_METHOD)
@@ -45,7 +43,7 @@ public class EventServiceTest {
 
     @Test
     @DisplayName("Should createEvent() CreateEventMessageDto contains exactly the same number of places to generate seats that event defined")
-    void shouldMessageDtoContainsExactlyTheSameNumberOfPlacesThatEventDefined() {
+    void shouldCreateMessageDtoContainsExactlyTheSameNumberOfPlacesThatEventDefined() {
 
         CreateEventRequestDto createEventRequestDto = new CreateEventRequestDto(
                 null,
@@ -57,13 +55,13 @@ public class EventServiceTest {
                 40
         );
 
-        ArgumentCaptor<CreateEventMessageDto> captor = ArgumentCaptor.forClass(CreateEventMessageDto.class);
+        ArgumentCaptor<CreateEventMessagePayloadDto> captor = ArgumentCaptor.forClass(CreateEventMessagePayloadDto.class);
 
         eventService.createEvent(createEventRequestDto);
 
         Mockito.verify(rabbitTemplate).convertAndSend(ArgumentMatchers.isNull(), ArgumentMatchers.isNull(), captor.capture());
 
-        CreateEventMessageDto messageDto = captor.getValue();
+        CreateEventMessagePayloadDto messageDto = captor.getValue();
 
         assertThat(messageDto.placesNumber()).isEqualTo(40);
     }

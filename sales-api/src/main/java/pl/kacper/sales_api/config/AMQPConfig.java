@@ -1,12 +1,16 @@
 package pl.kacper.sales_api.config;
 
-import org.springframework.amqp.core.*;
+import org.springframework.amqp.core.Binding;
+import org.springframework.amqp.core.BindingBuilder;
+import org.springframework.amqp.core.Queue;
+import org.springframework.amqp.core.TopicExchange;
 import org.springframework.amqp.rabbit.annotation.EnableRabbit;
-import org.springframework.amqp.support.converter.*;
+import org.springframework.amqp.support.converter.DefaultJacksonJavaTypeMapper;
+import org.springframework.amqp.support.converter.JacksonJsonMessageConverter;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import pl.kacper.sales_api.domain.event.dto.CreateEventMessageDto;
+import pl.kacper.sales_api.domain.message.dto.event.CreateEventMessagePayloadDto;
 
 import java.util.Map;
 
@@ -41,21 +45,21 @@ public class AMQPConfig {
                 .with(createEventRoutingKey);
     }
 
-    @Bean
-    public JacksonJsonMessageConverter jsonMessageConverter() {
-        DefaultJacksonJavaTypeMapper classMapper = new DefaultJacksonJavaTypeMapper();
-
-        classMapper.setTrustedPackages("pl.kacper.sales_api.domain.event.dto");
-
-        classMapper.setIdClassMapping(
-                Map.of(
-                        "create-event-message", CreateEventMessageDto.class
-                )
-        );
-
-        JacksonJsonMessageConverter jacksonJsonMessageConverter = new JacksonJsonMessageConverter();
-        jacksonJsonMessageConverter.setClassMapper(classMapper);
-
-        return jacksonJsonMessageConverter;
-    }
+//    @Bean
+//    public JacksonJsonMessageConverter jsonMessageConverter() {
+//        DefaultJacksonJavaTypeMapper classMapper = new DefaultJacksonJavaTypeMapper();
+//
+//        classMapper.setTrustedPackages("pl.kacper.sales_api.domain.event.dto");
+//
+//        classMapper.setIdClassMapping(
+//                Map.of(
+//                        "create-event-message", CreateEventMessagePayloadDto.class
+//                )
+//        );
+//
+//        JacksonJsonMessageConverter jacksonJsonMessageConverter = new JacksonJsonMessageConverter();
+//        jacksonJsonMessageConverter.setClassMapper(classMapper);
+//
+//        return jacksonJsonMessageConverter;
+//    }
 }

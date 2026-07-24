@@ -10,7 +10,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import pl.kacper.sales_api.domain.event.EventEntity;
-import pl.kacper.sales_api.domain.event.dto.CreateEventMessageDto;
+import pl.kacper.sales_api.domain.message.dto.event.CreateEventMessagePayloadDto;
 
 
 @RabbitListener(queues = "${rabbitmq.sales-api.queue-name.create-event}")
@@ -31,19 +31,19 @@ public class SeatService {
 
     @RabbitHandler
     @Transactional
-    public void createSeatsByEvent(CreateEventMessageDto createEventMessageDto) {
-        LOGGER.info("Fetching message: {}", createEventMessageDto);
+    public void createSeatsByEvent(CreateEventMessagePayloadDto createEventMessagePayloadDto) {
+        LOGGER.info("Fetching message: {}", createEventMessagePayloadDto);
 
-        int numberOfSeats = createEventMessageDto.placesNumber();
+        int numberOfSeats = createEventMessagePayloadDto.placesNumber();
 
         for (int i = 1; i <= numberOfSeats; i++) {
-            EventEntity referenceEvent = entityManager.getReference(EventEntity.class, createEventMessageDto.eventId());
-            String seatNumber = createEventMessageDto.seatPrefix() + " - " + i;
+            EventEntity referenceEvent = entityManager.getReference(EventEntity.class, createEventMessagePayloadDto.eventId());
+            String seatNumber = createEventMessagePayloadDto.seatPrefix() + " - " + i;
 
             SeatEntity seatEntity = new SeatEntity(
                     referenceEvent,
                     seatNumber,
-                    createEventMessageDto.pricePerSeat(),
+                    createEventMessagePayloadDto.pricePerSeat(),
                     SeatStatus.AVAILABLE
             );
             entityManager.persist(seatEntity);
@@ -57,7 +57,7 @@ public class SeatService {
         entityManager.flush();
         entityManager.clear();
 
-        LOGGER.info("Created {} seats for event id: {}", numberOfSeats, createEventMessageDto.eventId());
+        LOGGER.info("Created {} seats for event id: {}", numberOfSeats, createEventMessagePayloadDto.eventId());
     }
 
 }
