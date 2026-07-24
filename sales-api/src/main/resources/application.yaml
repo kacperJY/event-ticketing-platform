@@ -33,6 +33,10 @@ spring:
     listener:
       simple:
         prefetch: 100
+    publisher-confirm-type: correlated
+    template:
+      mandatory: true
+    publisher-returns: true
   flyway:
     locations: classpath:db/migration
     enabled: true
@@ -40,6 +44,10 @@ spring:
 
 database:
   batch-size: 50
+  fetch-size: 50
+
+messaging-scheduler:
+  batches-processing-at-once: 3
 
 rabbitmq:
   sales-api:
