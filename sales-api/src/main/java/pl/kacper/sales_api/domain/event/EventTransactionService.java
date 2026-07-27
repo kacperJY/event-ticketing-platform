@@ -3,11 +3,15 @@ package pl.kacper.sales_api.domain.event;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import pl.kacper.sales_api.common.exception.DuplicateDbRecordException;
+import pl.kacper.sales_api.common.utils.PriceValueCalculator;
 import pl.kacper.sales_api.domain.event.dto.CreateEventRequestDto;
 import pl.kacper.sales_api.domain.message.OutboxMessageEntity;
 import pl.kacper.sales_api.domain.message.OutboxMessageRepository;
 import pl.kacper.sales_api.domain.message.dto.event.CreateEventMessagePayloadDto;
+import pl.kacper.sales_api.domain.message.dto.EntityAndMessageDto;
 import pl.kacper.sales_api.domain.message.property.AggregateType;
 import pl.kacper.sales_api.domain.message.property.MessagePayloadVersion;
 import pl.kacper.sales_api.domain.message.property.OperationType;
@@ -20,10 +24,10 @@ public class EventTransactionService {
     private final ObjectMapper objectMapper;
     private final OutboxMessageRepository outboxMessageRepository;
 
-    @Value("${rabbitmq.exchange-name.exchange}")
-    private String exchange;
+    @Value("${rabbitmq.exchange.main-exchange}")
+    private String mainExchange;
 
-    @Value("${rabbitmq.sales-api.routing-key.create-event}")
+    @Value("${rabbitmq.sales-api.create-event.routing-key}")
     private String routingKey;
 
     @Autowired
@@ -33,8 +37,12 @@ public class EventTransactionService {
         this.outboxMessageRepository = outboxMessageRepository;
     }
 
-    @Transactional
-    EventEntity saveEvent(CreateEventRequestDto createEventRequestDto){
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    EntityAndMessageDto<Long> saveEventAndMessage(CreateEventRequestDto createEventRequestDto) {
+
+        if (eventRepository.existsByName(createEventRequestDto.name()))
+            throw new DuplicateDbRecordException("Event with name=%s is already exists, cannot add duplicate".formatted(createEventRequestDto.name()));
+
         EventEntity eventEntity = new EventEntity(
                 createEventRequestDto.name(),
                 createEventRequestDto.description(),
@@ -48,7 +56,7 @@ public class EventTransactionService {
 
         CreateEventMessagePayloadDto createEventMessagePayloadDto = new CreateEventMessagePayloadDto(
                 eventEntity.getEventId(),
-                createEventRequestDto.seatPrice(),
+                PriceValueCalculator.calculateZlotyToPennies(createEventRequestDto.seatPrice()),
                 createEventRequestDto.placesNumber(),
                 createEventRequestDto.name()
         );
@@ -59,11 +67,11 @@ public class EventTransactionService {
                 OperationType.CREATE,
                 AggregateType.EVENT,
                 String.valueOf(eventEntity.getEventId()),
-                exchange,
+                mainExchange,
                 routingKey
-                );
+        );
         outboxMessageRepository.save(outboxMessageEntity);
 
-        return eventEntity;
+        return new EntityAndMessageDto<Long>(eventEntity.getEventId(), outboxMessageEntity.getMessageId());
     }
 }

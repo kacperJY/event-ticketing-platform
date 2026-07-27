@@ -1,28 +1,22 @@
 package pl.kacper.sales_api.domain.event;
 
-import org.springframework.amqp.core.MessagePostProcessor;
-import org.springframework.amqp.rabbit.connection.CorrelationData;
-import org.springframework.amqp.rabbit.core.RabbitTemplate;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.core.retry.RetryTemplate;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Sort;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import pl.kacper.sales_api.common.exception.NoSuchDbRecordException;
-import pl.kacper.sales_api.common.utils.PriceValueCalculator;
 import pl.kacper.sales_api.domain.dto.ElementsPageDto;
-import pl.kacper.sales_api.domain.event.dto.*;
+import pl.kacper.sales_api.domain.event.dto.CreateEventRequestDto;
+import pl.kacper.sales_api.domain.event.dto.CreateEventResponseDto;
+import pl.kacper.sales_api.domain.event.dto.DetailEventDto;
+import pl.kacper.sales_api.domain.event.dto.SimpleEventDto;
 import pl.kacper.sales_api.domain.message.MessagePublisher;
+import pl.kacper.sales_api.domain.message.dto.EntityAndMessageDto;
 import pl.kacper.sales_api.domain.seat.SeatRepository;
 import pl.kacper.sales_api.domain.seat.SeatStatus;
-import tools.jackson.databind.ObjectMapper;
 
 import java.util.List;
-import java.util.Optional;
 
 @Service
 @Transactional(readOnly = true)
@@ -32,12 +26,6 @@ public class EventService {
     private final SeatRepository seatRepository;
     private final EventTransactionService eventTransactionService;
     private final MessagePublisher messagePublisher;
-
-    @Value("${rabbitmq.sales-api.routing-key.create-event}")
-    private String createEventRoutingKey;
-
-    @Value("${rabbitmq.exchange-name.exchange}")
-    private String exchangeName;
 
     private static final int PAGE_SIZE = 10;
 
@@ -52,12 +40,12 @@ public class EventService {
     public CreateEventResponseDto createEvent(CreateEventRequestDto createEventRequestDto) {
 
         // Transaction separated
-        EventEntity eventEntity = eventTransactionService.saveEvent(createEventRequestDto);
+        EntityAndMessageDto<Long> entityAndMessageDto = eventTransactionService.saveEventAndMessage(createEventRequestDto);
 
         // INSTANT-SEND after create
-        // IN PROGRESS
+        messagePublisher.trySendSingleMessageAsync(entityAndMessageDto.messageID());
 
-        return new CreateEventResponseDto(eventEntity.getEventId());
+        return new CreateEventResponseDto(entityAndMessageDto.entityId());
     }
 
     public ElementsPageDto<SimpleEventDto> getEvents(String city, int page) {
