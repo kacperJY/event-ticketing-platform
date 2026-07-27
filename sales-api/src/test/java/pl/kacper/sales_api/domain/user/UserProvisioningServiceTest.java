@@ -15,7 +15,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @TestInstance(TestInstance.Lifecycle.PER_METHOD)
 @ExtendWith(MockitoExtension.class)
-public class AuthServiceTest {
+public class UserProvisioningServiceTest {
 
     @Mock
     private UserRepository userRepository;
@@ -24,7 +24,7 @@ public class AuthServiceTest {
     private PasswordEncoder passwordEncoder;
 
     @InjectMocks
-    private AuthService authService;
+    private UserProvisioningService userProvisioningService;
 
     @Test
     @DisplayName("Should throws DuplicateUsernameException when registering user with email that already exists")
@@ -38,7 +38,7 @@ public class AuthServiceTest {
 
         Mockito.when(userRepository.existsByEmail(userRegisterDto.email())).thenReturn(true);
 
-        assertThatThrownBy(() -> authService.registerUser(userRegisterDto))
+        assertThatThrownBy(() -> userProvisioningService.createUser(userRegisterDto, Role.ROLE_USER))
                 .hasMessageContaining("already exists")
                 .isInstanceOf(DuplicateUsernameException.class);
     }
@@ -56,7 +56,7 @@ public class AuthServiceTest {
         Mockito.when(userRepository.existsByEmail(userRegisterDto.email())).thenReturn(false);
         Mockito.when(passwordEncoder.encode(userRegisterDto.password())).thenReturn(encodedPassword);
 
-        authService.registerUser(userRegisterDto);
+        userProvisioningService.createUser(userRegisterDto, Role.ROLE_USER);
 
         ArgumentCaptor<UserEntity> userEntityArgumentCaptor = ArgumentCaptor.forClass(UserEntity.class);
         Mockito.verify(userRepository,Mockito.times(1)).save(userEntityArgumentCaptor.capture());
