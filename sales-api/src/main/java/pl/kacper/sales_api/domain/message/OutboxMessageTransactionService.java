@@ -6,7 +6,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import pl.kacper.sales_api.common.exception.ConcurrencyClaimMessageException;
-import pl.kacper.sales_api.common.exception.NoSuchDbRecordException;
 import pl.kacper.sales_api.domain.message.property.MessageStatus;
 
 import java.time.Instant;

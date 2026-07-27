@@ -100,7 +100,7 @@ public class MessagePublisher {
         if (flag) {
             boolean permitsAssigned = false;
             try {
-                outboxMessageEntity = outboxMessageTransactionService.markPendingMessageAsProcessing(messageId);// Locking single row
+                outboxMessageEntity = outboxMessageTransactionService.markPendingMessageAsProcessing(messageId); // Locking single row
                 permitsAssigned = true;
             } catch (LockTimeoutException e) {
                 LOGGER.error(
