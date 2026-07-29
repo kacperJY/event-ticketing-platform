@@ -45,6 +45,8 @@ public interface OutboxMessageRepository extends ListCrudRepository<OutboxMessag
     @QueryHints({
             @QueryHint(name = "jakarta.persistence.lock.timeout", value = "-2")
     })
-    List<OutboxMessageEntity> findStuckInProcessing(@Param("lockedTimeout") Instant lockedTimeout, Pageable pageable);
     List<OutboxMessageEntity> findStuckInProcessingWithLockingSkip(@Param("lockedTimeout") Instant lockedTimeout, Pageable pageable);
+
+    long countByMessageStatusAndAggregateId(MessageStatus messageStatus, String aggregateId);
+
 }
