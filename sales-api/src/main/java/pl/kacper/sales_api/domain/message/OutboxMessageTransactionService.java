@@ -32,7 +32,7 @@ public class OutboxMessageTransactionService {
                 fetchSize,
                 Sort.by("nextAttemptAt").ascending()
                         .and(Sort.by("createdAt").ascending()));
-        List<OutboxMessageEntity> byStatusAndNextAttemptAt = outboxMessageRepository.findByStatusAndNextAttemptAt(MessageStatus.PENDING, Instant.now(), pageRequest);
+        List<OutboxMessageEntity> byStatusAndNextAttemptAt = outboxMessageRepository.findByStatusAndNextAttemptAtWithLockingSkip(MessageStatus.PENDING, Instant.now(), pageRequest);
 
         byStatusAndNextAttemptAt.forEach(outboxMessageEntity -> {
             outboxMessageEntity.setMessageStatus(MessageStatus.PROCESSING);
@@ -44,7 +44,7 @@ public class OutboxMessageTransactionService {
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public OutboxMessageEntity markPendingMessageAsProcessing(UUID messageId) {
-        OutboxMessageEntity outboxMessageEntity = outboxMessageRepository.findByStatusAndIDWithLocking(messageId, MessageStatus.PENDING)
+        OutboxMessageEntity outboxMessageEntity = outboxMessageRepository.findByStatusAndIDWithLockingNoWait(messageId, MessageStatus.PENDING)
                 .orElseThrow(() -> new ConcurrencyClaimMessageException("Message with ID=%s doest not exists".formatted(messageId)));
 
         outboxMessageEntity.setMessageStatus(MessageStatus.PROCESSING);
@@ -56,7 +56,7 @@ public class OutboxMessageTransactionService {
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public Collection<OutboxMessageEntity> requeueProcessingMessages(Instant timeout, int fetchSize) {
         PageRequest pageRequest = PageRequest.of(0, fetchSize, Sort.by("lockedAt").ascending());
-        List<OutboxMessageEntity> stuckedInProcessingList = outboxMessageRepository.findStuckInProcessing(timeout, pageRequest);
+        List<OutboxMessageEntity> stuckedInProcessingList = outboxMessageRepository.findStuckInProcessingWithLockingSkip(timeout, pageRequest);
         stuckedInProcessingList.forEach(stuckEntity -> {
             stuckEntity.setMessageStatus(MessageStatus.PENDING);
             stuckEntity.setLockedAt(null);

@@ -26,14 +26,14 @@ public interface OutboxMessageRepository extends ListCrudRepository<OutboxMessag
     @QueryHints({
             @QueryHint(name = "jakarta.persistence.lock.timeout", value = "-2")
     })
-    List<OutboxMessageEntity> findByStatusAndNextAttemptAt(@Param("status") MessageStatus messageStatus, @Param("nextAttempt") Instant nextAttempt, Pageable pageable);
+    List<OutboxMessageEntity> findByStatusAndNextAttemptAtWithLockingSkip(@Param("status") MessageStatus messageStatus, @Param("nextAttempt") Instant nextAttempt, Pageable pageable);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @QueryHints({
             @QueryHint(name = "jakarta.persistence.lock.timeout", value = "0")
     })
     @Query("select ome from OutboxMessageEntity ome where ome.messageId = :messageId and ome.messageStatus = :messageStatus")
-    Optional<OutboxMessageEntity> findByStatusAndIDWithLocking(@Param("messageId") UUID id, @Param("messageStatus") MessageStatus messageStatus);
+    Optional<OutboxMessageEntity> findByStatusAndIDWithLockingNoWait(@Param("messageId") UUID id, @Param("messageStatus") MessageStatus messageStatus);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("""
@@ -46,4 +46,5 @@ public interface OutboxMessageRepository extends ListCrudRepository<OutboxMessag
             @QueryHint(name = "jakarta.persistence.lock.timeout", value = "-2")
     })
     List<OutboxMessageEntity> findStuckInProcessing(@Param("lockedTimeout") Instant lockedTimeout, Pageable pageable);
+    List<OutboxMessageEntity> findStuckInProcessingWithLockingSkip(@Param("lockedTimeout") Instant lockedTimeout, Pageable pageable);
 }
