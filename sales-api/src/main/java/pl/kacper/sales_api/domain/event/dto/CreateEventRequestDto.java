@@ -1,5 +1,6 @@
 package pl.kacper.sales_api.domain.event.dto;
 
+import jakarta.validation.constraints.Future;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Positive;
 import pl.kacper.sales_api.domain.event.EventCategory;
@@ -12,7 +13,7 @@ public record CreateEventRequestDto(
         EventCategory eventCategory,
         Address location,
         long seatPrice,
-        Instant eventDate,
+        @Future Instant eventDate,
         @Positive int placesNumber
 ) {
 }
