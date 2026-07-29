@@ -2,60 +2,121 @@ package pl.kacper.sales_api.config;
 
 import org.springframework.amqp.core.*;
 import org.springframework.amqp.rabbit.annotation.EnableRabbit;
-import org.springframework.amqp.support.converter.*;
+import org.springframework.amqp.rabbit.config.RetryInterceptorBuilder;
+import org.springframework.amqp.rabbit.config.SimpleRabbitListenerContainerFactory;
+import org.springframework.amqp.rabbit.config.StatelessRetryOperationsInterceptor;
+import org.springframework.amqp.rabbit.connection.ConnectionFactory;
+import org.springframework.amqp.rabbit.retry.RejectAndDontRequeueRecoverer;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.amqp.autoconfigure.SimpleRabbitListenerContainerFactoryConfigurer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import pl.kacper.sales_api.domain.event.dto.CreateEventMessageDto;
+import org.springframework.core.retry.RetryPolicy;
+import pl.kacper.sales_api.common.exception.InvalidMessageFormatException;
+import pl.kacper.sales_api.common.exception.RoutingException;
 
-import java.util.Map;
+import java.time.Duration;
+import java.util.List;
 
 @Configuration
 @EnableRabbit
 public class AMQPConfig {
 
-    @Value("${rabbitmq.exchange-name.exchange}")
-    private String exchangeName;
+    @Value("${rabbitmq.exchange.main-exchange}")
+    private String mainExchangeName;
+    @Value("${rabbitmq.exchange.dead-letter-exchange}")
+    private String deadLetterExchangeName;
 
-    @Value("${rabbitmq.sales-api.queue-name.create-event}")
+    @Value("${rabbitmq.sales-api.create-event.queue-name}")
     private String createEventQueueName;
+    @Value("${rabbitmq.sales-api.create-event.dlq}")
+    private String createEventDLQ;
 
-    @Value("${rabbitmq.sales-api.routing-key.create-event}")
+    @Value("${rabbitmq.sales-api.create-event.routing-key}")
     private String createEventRoutingKey;
+    @Value("${rabbitmq.sales-api.create-event.dlq-routing-key}")
+    private String createEventDLQRoutingKey;
+
+    @Value("${rabbitmq.consumer.delay}")
+    private long delay;
+    @Value("${rabbitmq.consumer.max-delay}")
+    private long maxDelay;
+    @Value("${rabbitmq.consumer.multiplier}")
+    private double multiplier;
+    @Value("${rabbitmq.consumer.max-retries}")
+    private long maxRetries;
+
 
     @Bean
-    public TopicExchange topicExchange(){
-        return new TopicExchange(exchangeName,true,false);
+    public TopicExchange mainExchange() {
+        return new TopicExchange(mainExchangeName, true, false);
     }
 
     @Bean
-    public Queue createEvnetQueue(){
-        return new Queue(createEventQueueName,true);
+    public TopicExchange deadLetterExchange() {
+        return new TopicExchange(deadLetterExchangeName, true, false);
+    }
+
+
+    @Bean
+    public Queue createEventQueue() {
+        return QueueBuilder
+                .durable(createEventQueueName)
+                .withArgument("x-dead-letter-exchange", deadLetterExchangeName)
+                .withArgument("x-dead-letter-routing-key", createEventDLQRoutingKey)
+                .build();
     }
 
     @Bean
-    public Binding createEventBinding(){
+    public Binding createEventBinding() {
         return BindingBuilder
-                .bind(createEvnetQueue())
-                .to(topicExchange())
+                .bind(createEventQueue())
+                .to(mainExchange())
                 .with(createEventRoutingKey);
     }
 
     @Bean
-    public JacksonJsonMessageConverter jsonMessageConverter() {
-        DefaultJacksonJavaTypeMapper classMapper = new DefaultJacksonJavaTypeMapper();
-
-        classMapper.setTrustedPackages("pl.kacper.sales_api.domain.event.dto");
-
-        classMapper.setIdClassMapping(
-                Map.of(
-                        "create-event-message", CreateEventMessageDto.class
-                )
-        );
-
-        JacksonJsonMessageConverter jacksonJsonMessageConverter = new JacksonJsonMessageConverter();
-        jacksonJsonMessageConverter.setClassMapper(classMapper);
-
-        return jacksonJsonMessageConverter;
+    public Queue createEventDeadLetterQueue() {
+        return QueueBuilder.durable(createEventDLQ).build();
     }
+
+    @Bean
+    public Binding createEventDLQBinding() {
+        return BindingBuilder
+                .bind(createEventDeadLetterQueue())
+                .to(deadLetterExchange())
+                .with(createEventDLQRoutingKey);
+    }
+
+    @Bean
+    public StatelessRetryOperationsInterceptor statelessRetryOperationsInterceptor() {
+        RetryPolicy retryPolicy = RetryPolicy.builder().
+                excludes(List.of(InvalidMessageFormatException.class, RoutingException.class))
+                .maxRetries(maxRetries)
+                .delay(Duration.ofSeconds(delay))
+                .maxDelay(Duration.ofSeconds(maxDelay))
+                .multiplier(multiplier)
+                .build();
+
+        return RetryInterceptorBuilder.stateless()
+                .retryPolicy(retryPolicy)
+                .recoverer(new RejectAndDontRequeueRecoverer())
+                .build();
+    }
+
+    @Bean
+    public SimpleRabbitListenerContainerFactory rabbitListenerContainerFactory(
+            StatelessRetryOperationsInterceptor interceptor,
+            ConnectionFactory connectionFactory,
+            SimpleRabbitListenerContainerFactoryConfigurer simpleRabbitListenerContainerFactoryConfigurer) {
+
+        SimpleRabbitListenerContainerFactory simpleRabbitListenerContainerFactory = new SimpleRabbitListenerContainerFactory();
+
+        simpleRabbitListenerContainerFactoryConfigurer.configure(simpleRabbitListenerContainerFactory, connectionFactory);
+
+        simpleRabbitListenerContainerFactory.setAdviceChain(interceptor);
+
+        return simpleRabbitListenerContainerFactory;
+    }
+
 }

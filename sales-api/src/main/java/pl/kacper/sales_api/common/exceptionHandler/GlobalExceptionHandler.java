@@ -1,7 +1,6 @@
 package pl.kacper.sales_api.common.exceptionHandler;
 
 import io.jsonwebtoken.ExpiredJwtException;
-import org.hibernate.OrderingMode;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpStatus;
@@ -12,6 +11,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import pl.kacper.sales_api.common.dto.InvalidParamDto;
+import pl.kacper.sales_api.common.exception.DuplicateDbRecordException;
 import pl.kacper.sales_api.common.exception.DuplicateUsernameException;
 import pl.kacper.sales_api.common.exception.NoSuchDbRecordException;
 import pl.kacper.sales_api.common.exception.NoSuchQuantityException;
@@ -42,6 +42,18 @@ public class GlobalExceptionHandler {
         );
 
         problemDetail.setTitle("Not enough available resources");
+
+        return problemDetail;
+    }
+
+    @ExceptionHandler({DuplicateDbRecordException.class})
+    public ProblemDetail handleIllegalStateException(Throwable throwable){
+        ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
+                HttpStatus.BAD_REQUEST,
+                throwable.getMessage()
+        );
+
+        problemDetail.setTitle("Creating duplicate");
 
         return problemDetail;
     }

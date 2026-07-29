@@ -1,9 +1,7 @@
 package pl.kacper.sales_api.domain.order;
 
 
-import org.assertj.core.api.AbstractIntegerAssert;
 import org.assertj.core.api.Assertions;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.jdbc.Sql;
@@ -16,7 +14,6 @@ import pl.kacper.sales_api.domain.seat.SeatStatus;
 import pl.kacper.sales_api.domain.user.UserEntity;
 import pl.kacper.sales_api.domain.user.UserRepository;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.*;
 

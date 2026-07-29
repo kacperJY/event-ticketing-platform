@@ -36,7 +36,6 @@ public class EventEntity extends BaseEntity {
 
     private int placesNumber;
 
-
     public EventEntity(String name, String description, EventCategory eventCategory, Address location, Instant eventDate, int placesNumber) {
         this.name = name;
         this.description = description;

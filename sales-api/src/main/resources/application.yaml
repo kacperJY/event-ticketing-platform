@@ -33,6 +33,12 @@ spring:
     listener:
       simple:
         prefetch: 100
+        default-requeue-rejected: false
+        acknowledge-mode: auto
+    publisher-confirm-type: correlated
+    template:
+      mandatory: true
+    publisher-returns: true
   flyway:
     locations: classpath:db/migration
     enabled: true
@@ -40,12 +46,25 @@ spring:
 
 database:
   batch-size: 50
+  fetch-size: 50
+
+messaging-scheduler:
+  batches-processing-at-once: 3
 
 rabbitmq:
+  consumer:
+    max-retries: 3
+    max-delay: 12
+    multiplier: 2.0
+    delay: 3
   sales-api:
-    queue-name:
-        create-event: "event-ticketing-platform.sales-api.queue.create-event"
-    routing-key:
-        create-event: "event-ticketing-platform.sales-api.routing-key.create-event"
-  exchange-name:
-      exchange: "event-ticketing-platform.sales-api.exchange.create-event"
+    create-event:
+      queue-name: "event-ticketing-platform.sales-api.create-event.queue"
+      routing-key: "event-ticketing-platform.sales-api.create-event.routing-key"
+      dlq: "event-ticketing-platform.sales-api.create-event.dlq"
+      dlq-routing-key: "event-ticketing-platform.sales-api.create-event.dlq-routing-key"
+      consumer-name: "seat-service"
+  exchange:
+    main-exchange: "event-ticketing-platform.main-exchange"
+    dead-letter-exchange: "event-ticketing-platform.dead-letter-exchange"
+

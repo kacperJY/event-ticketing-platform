@@ -1,6 +1,6 @@
-package pl.kacper.sales_api.domain.event.dto;
+package pl.kacper.sales_api.domain.message.dto.event;
 
-public record CreateEventMessageDto(
+public record CreateEventMessagePayloadDto(
         Long eventId,
         long pricePerSeat,
         int placesNumber,

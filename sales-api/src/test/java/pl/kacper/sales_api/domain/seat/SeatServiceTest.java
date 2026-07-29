@@ -10,7 +10,7 @@ import org.mockito.*;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 import pl.kacper.sales_api.domain.event.EventEntity;
-import pl.kacper.sales_api.domain.event.dto.CreateEventMessageDto;
+import pl.kacper.sales_api.domain.message.dto.event.CreateEventMessagePayloadDto;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -40,7 +40,7 @@ public class SeatServiceTest {
         // Given
         final int placesNumber = 20;
         Long eventId = 1L;
-        CreateEventMessageDto createEventMessageDto = new CreateEventMessageDto(
+        CreateEventMessagePayloadDto createEventMessageDto = new CreateEventMessagePayloadDto(
                 eventId,
                 200,
                 placesNumber,
@@ -71,7 +71,7 @@ public class SeatServiceTest {
     void shouldExecFlushOnly1TimeForPlacesNumberLowerThanBatchSize() {
 
         final int placesNumber = 20;
-        CreateEventMessageDto createEventMessageDto = new CreateEventMessageDto(
+        CreateEventMessagePayloadDto createEventMessageDto = new CreateEventMessagePayloadDto(
                 1L,
                 0,
                 placesNumber,
@@ -89,7 +89,7 @@ public class SeatServiceTest {
     void shouldExecFlush3TimesForPlacesNumberHigher2TimesThanBatchSize(){
         // 2 * batch_size + n < 3 * batch_size
         final int placesNumber = BATCH_SIZE * 2 + 30;
-        CreateEventMessageDto createEventMessageDto = new CreateEventMessageDto(
+        CreateEventMessagePayloadDto createEventMessageDto = new CreateEventMessagePayloadDto(
                 1L,
                 0,
                 placesNumber,
