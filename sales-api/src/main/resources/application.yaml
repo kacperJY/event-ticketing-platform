@@ -52,6 +52,11 @@ messaging-scheduler:
   batches-processing-at-once: 3
 
 rabbitmq:
+  consumer:
+    max-retries: 3
+    max-delay: 12
+    multiplier: 2.0
+    delay: 3
   sales-api:
     create-event:
       queue-name: "event-ticketing-platform.sales-api.create-event.queue"

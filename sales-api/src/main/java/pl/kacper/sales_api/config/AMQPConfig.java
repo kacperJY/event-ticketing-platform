@@ -37,6 +37,15 @@ public class AMQPConfig {
     @Value("${rabbitmq.sales-api.create-event.dlq-routing-key}")
     private String createEventDLQRoutingKey;
 
+    @Value("${rabbitmq.consumer.delay}")
+    private long delay;
+    @Value("${rabbitmq.consumer.max-delay}")
+    private long maxDelay;
+    @Value("${rabbitmq.consumer.multiplier}")
+    private double multiplier;
+    @Value("${rabbitmq.consumer.max-retries}")
+    private long maxRetries;
+
 
     @Bean
     public TopicExchange mainExchange() {
@@ -83,10 +92,10 @@ public class AMQPConfig {
     public StatelessRetryOperationsInterceptor statelessRetryOperationsInterceptor() {
         RetryPolicy retryPolicy = RetryPolicy.builder().
                 excludes(List.of(InvalidMessageFormatException.class, RoutingException.class))
-                .maxRetries(3)
-                .delay(Duration.ofSeconds(3L))
-                .maxDelay(Duration.ofSeconds(12L))
-                .multiplier(2.0)
+                .maxRetries(maxRetries)
+                .delay(Duration.ofSeconds(delay))
+                .maxDelay(Duration.ofSeconds(maxDelay))
+                .multiplier(multiplier)
                 .build();
 
         return RetryInterceptorBuilder.stateless()

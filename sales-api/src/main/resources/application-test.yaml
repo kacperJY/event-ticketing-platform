@@ -1,1 +1,8 @@
 jwt-secret-key: aW5kaXZpZHVhbGRhdWdodGVyc2xhYnNkaWdyZWxhdGVkemlwcGVyZWFnZXJtYWtlbG9uZ2hvdXNlaHVydGFsbw==
+
+rabbitmq:
+  consumer:
+    max-retries: 3
+    max-delay: 2
+    multiplier: 1.0
+    delay: 2
