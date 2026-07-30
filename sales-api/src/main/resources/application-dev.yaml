@@ -10,5 +10,5 @@ spring:
     username: ${RABBITMQ_DEFAULT_USER:admin}
     password: ${RABBITMQ_DEFAULT_PASS:admin}
     port: ${RABBITMQ_NODE_PORT:5672}
-    host: localhost
+    host: ${RABBITMQ_HOST:localhost}
 jwt-secret-key: gcKshT5geu7UzT0jGpjeMJYwPdW0mAGaCsMH0iWThscYEb22jHvlR2pDt2oaKnOW
