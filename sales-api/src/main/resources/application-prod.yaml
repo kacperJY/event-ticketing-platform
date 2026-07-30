@@ -14,3 +14,5 @@ spring:
     password: ${RABBITMQ_DEFAULT_PASS}
     port: ${RABBITMQ_NODE_PORT}
     host: ${RABBITMQ_HOST}
+
+jwt-secret-key: ${JWT_SECRET_KEY}
