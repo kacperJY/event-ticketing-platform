@@ -1,235 +1,327 @@
 # 🎫 Event Ticketing Platform
 
-![Status](https://img.shields.io/badge/Status-Work_in_Progress-orange)
-![Spring Boot](https://img.shields.io/badge/Spring_Boot-4.1-brightgreen)
+![Status](https://img.shields.io/badge/status-active_development-orange)
 ![Java](https://img.shields.io/badge/Java-25-blue)
-![PostgreSQL](https://img.shields.io/badge/PostgreSQL-17-blue)
-![RabbitMQ](https://img.shields.io/badge/RabbitMQ-4-orange)
+![Spring Boot](https://img.shields.io/badge/Spring_Boot-4.1-brightgreen)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-17-4169E1)
+![RabbitMQ](https://img.shields.io/badge/RabbitMQ-4-FF6600)
 
-> **Note:** This project is currently under active development. The README reflects the current implementation and separates implemented features from planned functionality.
+Backend portfolio project for event management, seat inventory and order creation. The current implementation focuses on correctness under concurrent requests and reliable asynchronous processing with PostgreSQL and RabbitMQ.
 
----
+> **Project status:** active development. The Sales API and the event-to-seat messaging flow are implemented and tested. Stripe payments, ticket fulfillment/PDF generation, the application Docker image, CI and OpenAPI documentation are not implemented yet.
 
-# 📖 About
+## Current scope
 
-Backend platform for managing events, ticket reservations and order processing.
+| Area | Current state |
+|---|---|
+| Sales API | Implemented |
+| Authentication and authorization | Implemented with JWT and role-based access |
+| Event catalog and event creation | Implemented |
+| Asynchronous seat generation | Implemented with RabbitMQ |
+| Transactional outbox | Implemented |
+| Idempotent consumer, retries and DLQ | Implemented |
+| Order creation and concurrent seat locking | Implemented |
+| Payments | Planned — orders currently remain `PENDING` |
+| Fulfillment worker | Spring Boot scaffold only |
+| PDF and email delivery | Planned |
+| CI and application image | Planned |
 
-The project is being developed as a portfolio project with a focus on backend engineering concepts such as:
+## Technical focus
 
-- concurrent seat reservation,
-- transaction management,
-- authentication and authorization,
-- asynchronous messaging,
-- database migrations,
-- and integration with external services.
+The project is primarily used to explore practical backend engineering problems rather than only CRUD functionality:
 
-The system currently consists primarily of the **Sales API**, while additional responsibilities such as ticket fulfillment are planned to be handled by separate asynchronous workers.
+- preventing overbooking when orders are created concurrently,
+- coordinating database transactions with message publishing,
+- handling at-least-once message delivery and duplicates,
+- recovering from publishing and consumer failures,
+- validating behavior against real PostgreSQL and RabbitMQ instances.
 
----
+## Architecture
 
-# 🏗️ Architecture
+```text
+Client
+  |
+  v
+Sales API (Spring Boot)
+  |
+  |-- PostgreSQL
+  |     |-- users, events, seats, orders, tickets
+  |     |-- outbox_messages
+  |     `-- processed_messages
+  |
+  `-- RabbitMQ
+        |
+        `-- create-event queue
+              |
+              v
+        CreateEventMessageConsumer
+              |
+              `-- batch seat generation
 
-The project currently consists of:
+Fulfillment Worker
+  `-- scaffold only; post-payment ticket delivery is planned
+```
 
-### Sales API
+The repository is organized as a small monorepo:
 
-Main Spring Boot application responsible for:
+```text
+event-ticketing-platform/
+├── sales-api/             # implemented application
+├── fulfillment-worker/    # scaffold for future ticket fulfillment
+├── compose.yaml           # PostgreSQL and RabbitMQ for local development
+├── .env.example
+└── rabbitmq.example
+```
 
-- user registration and authentication,
-- JWT-based authorization,
-- role-based access control,
-- event creation and browsing,
+## Implemented flows
+
+### Event creation and asynchronous seat generation
+
+```text
+POST /api/v1/admin/event
+        |
+        v
+Database transaction
+  |-- Event
+  `-- OutboxMessage(PENDING)
+        |
+        v
+Commit
+        |
+        |-- immediate publish attempt
+        `-- scheduled fallback scan
+                |
+                v
+RabbitMQ publisher confirm / return
+                |
+                v
+Create-event consumer
+        |
+        v
+Database transaction
+  |-- ProcessedMessage claim
+  `-- Seats created in batches
+```
+
+The event and its outbox record are persisted in the same transaction. After commit, the publisher attempts immediate delivery, while a scheduled scanner provides a fallback for pending or stale messages.
+
+Publisher confirms and returned-message handling update the outbox lifecycle:
+
+```text
+PENDING → PROCESSING → SENT
+                 `----→ PENDING (retry)
+                 `----→ FAILED
+```
+
+The consumer validates message metadata and payload, uses a database-backed idempotency key, and creates the processed marker together with all seats in one transaction.
+
+### Order creation
+
+Authenticated users can create an order for one or more events. The current flow:
+
+- verifies that all requested events exist,
+- sorts event requests to acquire locks in a deterministic order,
+- selects available seats using pessimistic database locking,
+- changes selected seats to `LOCKED_FOR_CHECKOUT`,
+- creates ticket records and a `PENDING` order.
+
+Payment capture and the transition to a completed purchase are intentionally not implemented yet.
+
+## Reliability and concurrency decisions
+
+| Problem | Current approach |
+|---|---|
+| Database write and broker publish cannot be one atomic transaction | Transactional Outbox Pattern |
+| Broker accepts a message but the producer crashes before marking it as sent | At-least-once publishing with idempotent consumers |
+| Duplicate or concurrent delivery | Atomic insert into `processed_messages` with a composite primary key |
+| Temporary publisher failure | Outbox retry schedule and `PENDING` requeue |
+| Publisher process stops while a message is `PROCESSING` | Recovery of stale processing records |
+| Unroutable message | Publisher returns and `FAILED` outbox status |
+| Invalid message contract or exhausted consumer retries | Dead-letter exchange and dedicated DLQ |
+| Concurrent orders compete for the same seats | PostgreSQL pessimistic locking with `SKIP LOCKED` |
+| Multi-event orders acquire locks in a different order | Deterministic event ordering before seat selection |
+
+## Implemented features
+
+- user registration and login,
+- JWT authentication,
+- role-based authorization (`USER`, `ADMIN`),
+- development-only account seeding,
+- public event catalog with pagination and optional city filtering,
+- event details with available-seat count,
+- administrator-only event creation,
 - asynchronous seat generation,
-- seat availability management,
-- order creation and checkout.
+- transactional outbox with publisher confirms and returns,
+- immediate publishing with scheduled fallback and stale-message recovery,
+- idempotent RabbitMQ consumer,
+- bounded consumer retries and dead-letter handling,
+- order creation with concurrent seat protection,
+- batch inserts for seat generation,
+- Flyway database migrations,
+- RFC 7807-style error responses through Spring `ProblemDetail`,
+- Bean Validation and JPA auditing,
+- separate `dev`, `test` and `prod` configuration profiles,
+- Docker Compose infrastructure for PostgreSQL and RabbitMQ.
 
-### PostgreSQL
+## API overview
 
-Primary relational database used for storing:
+| Method | Endpoint | Access | Purpose |
+|---|---|---|---|
+| `POST` | `/auth/register` | Public | Register a user |
+| `POST` | `/auth/login` | Public | Receive a JWT bearer token |
+| `GET` | `/api/v1/event` | Public | List events; supports `city` and `page` parameters |
+| `GET` | `/api/v1/event/{eventID}` | Public | Get event details and available-seat count |
+| `POST` | `/api/v1/admin/event` | `ADMIN` | Create an event and trigger asynchronous seat generation |
+| `POST` | `/api/v1/order` | Authenticated | Create a pending order and lock seats for checkout |
 
-- users,
-- events,
-- seats,
-- orders,
-- tickets.
+## Testing
 
-Database schema changes are managed using **Flyway migrations**.
+The project contains unit tests and integration tests.
 
-### RabbitMQ
+Unit tests use JUnit 5, Mockito and AssertJ. Integration tests run the Spring context against real PostgreSQL and RabbitMQ containers provided by Testcontainers.
 
-Used for asynchronous communication inside the platform.
+Covered integration scenarios include:
 
-Currently, event creation publishes a message that triggers asynchronous seat generation.
+- concurrent orders cannot overbook available seats,
+- multi-event orders acquire locks consistently,
+- sequential and concurrent duplicate message delivery is idempotent,
+- successful RabbitMQ publishing and consumption,
+- invalid message type and payload are dead-lettered,
+- retry exhaustion rolls back database work and moves the message to the DLQ,
+- full HTTP → Event → Outbox → RabbitMQ → Consumer → Seats flow.
 
-### Fulfillment Worker
+Run the Sales API test suite with:
 
-Separate Spring Boot application scaffold intended to handle post-purchase operations such as:
+```bash
+cd sales-api
+./mvnw verify
+```
 
-- ticket PDF generation,
-- email delivery.
+Docker must be running because the integration tests start PostgreSQL and RabbitMQ containers.
 
-This component is currently under development.
+## Tech stack
 
-### Docker Compose
-
-Provides local infrastructure for:
-
-- PostgreSQL,
-- RabbitMQ.
-
----
-
-# ✨ Implemented Features
-
-- JWT authentication
-- Role-based authorization (`USER`, `ADMIN`)
-- User registration and login
-- Development-only default account seeding
-- Event creation restricted to administrators
-- Event catalog with pagination
-- Event detail and seat availability lookup
-- Order creation
-- Pessimistic database locking for seat selection
-- Asynchronous seat generation using RabbitMQ
-- Batch seat insertion
-- Flyway database migrations
-- Global exception handling using `ProblemDetail`
-- Bean Validation
-- JPA Auditing
-- Environment-based configuration
-- Docker Compose development environment
-- Unit tests with JUnit 5 and Mockito
-
----
-
-# 💻 Tech Stack
+### Application
 
 - Java 25
 - Spring Boot 4.1
 - Spring Web MVC
-- Spring Data JPA
+- Spring Data JPA / Hibernate
 - Spring Security
 - Spring AMQP
 - Bean Validation
-- PostgreSQL 17
+- JJWT
+- virtual threads
+
+### Data and infrastructure
+
+- PostgreSQL 17 for local development
 - RabbitMQ 4
 - Flyway
-- Docker & Docker Compose
-- Maven
+- Docker and Docker Compose
+- Maven Wrapper
+
+### Testing
+
 - JUnit 5
 - Mockito
-
-Planned / in progress:
-
+- AssertJ
 - Testcontainers
-- Stripe API
-- PDF ticket generation
-- Email ticket delivery
-- GitHub Actions CI
+- Spring Boot Test
+- MockMvc
 
----
+## Running locally
 
-# 🗺️ Roadmap
-
-## Completed
-
-- ✅ Project initialization
-- ✅ Docker development infrastructure
-- ✅ Domain model
-- ✅ Flyway database migrations
-- ✅ JWT authentication
-- ✅ Role-based authorization
-- ✅ Global exception handling
-- ✅ Event creation
-- ✅ Event catalog
-- ✅ RabbitMQ integration
-- ✅ Asynchronous seat generation
-- ✅ Basic order and checkout flow
-- ✅ Pessimistic locking for seat selection
-
-## In Progress
-
-- 🚧 Concurrency integration tests with PostgreSQL and Testcontainers
-- 🚧 Improving concurrent order processing
-- 🚧 Reliable transactional event publishing
-- 🚧 Idempotent RabbitMQ consumers
-- 🚧 Request validation improvements
-
-## Planned
-
-- ⏳ Stripe payment integration
-- ⏳ Transactional Outbox Pattern
-- ⏳ Ticket PDF generation
-- ⏳ Email ticket delivery
-- ⏳ Fulfillment worker implementation
-- ⏳ GitHub Actions CI pipeline
-- ⏳ Additional integration tests
-
----
-
-# 🚀 Running Locally
-
-## Requirements
+### Requirements
 
 - Java 25
-- Docker
-- Maven
+- Docker with Docker Compose
 
-## Development Mode
+A global Maven installation is not required because both applications include Maven Wrapper.
 
-1. Clone the repository.
+### 1. Clone the repository
 
-2. Copy `.env.example` to `.env` and configure the required application environment variables, including database, RabbitMQ and JWT settings.
+```bash
+git clone https://github.com/kacperJY/event-ticketing-platform.git
+cd event-ticketing-platform
+```
 
-3. Create the local RabbitMQ configuration file `rabbitmq` based on `rabbitmq.example`, using the filename expected by Docker Compose.
+### 2. Prepare environment files
 
-The RabbitMQ configuration currently defines the ports used by the local RabbitMQ container. RabbitMQ connection settings used by the application are configured through environment variables.
+Copy the examples:
 
-4. Start the infrastructure:
+```bash
+cp .env.example .env
+cp rabbitmq.example rabbitmq
+```
+
+Fill `.env` with local PostgreSQL, RabbitMQ and JWT values. The current `dev` profile expects the PostgreSQL database name `event-ticketing-platform-db`.
+
+The default RabbitMQ settings used by the `dev` profile are:
+
+| Setting | Default value |
+|---|---|
+| Host | `localhost` |
+| AMQP port | `5672` |
+| Management UI port | `15672` |
+| Username | `admin` |
+| Password | `admin` |
+
+The management UI is available at `http://localhost:15672` after RabbitMQ starts. These credentials are intended only for local development and must not be used in production. All values can be overridden with environment variables.
+
+For a standard local RabbitMQ setup, `rabbitmq` should define the same ports as `.env`, for example:
+
+```properties
+listeners.tcp.default=5672
+management.tcp.port=15672
+```
+
+Docker Compose reads the root `.env` file automatically. With the `dev` profile, the Sales API can use the default RabbitMQ credentials listed above and the development-only JWT fallback configured in `application-dev.yaml`. Environment variables still override those defaults. When using shell environment variables, use `JWT_SECRET_KEY` for the Spring property `jwt-secret-key`.
+
+### 3. Start PostgreSQL and RabbitMQ
 
 ```bash
 docker compose up -d
 ```
 
-This starts:
+The compose file starts:
 
-- PostgreSQL
-- RabbitMQ
+- PostgreSQL,
+- RabbitMQ with the management plugin.
 
-5. Start the `sales-api` application using Maven or your IDE with the `dev` profile.
+### 4. Start the Sales API
 
-The development profile creates local test accounts for development purposes only.
+```bash
+cd sales-api
+./mvnw spring-boot:run -Dspring-boot.run.profiles=dev
+```
 
----
+The `dev` profile seeds local accounts for development purposes only:
 
-# 🔐 Concurrency
+| Role | Email | Password |
+|---|---|---|
+| `USER` | `user@gmail.com` | `User123` |
+| `ADMIN` | `admin@gmail.com` | `Admin123` |
 
-One of the main technical goals of the project is preventing ticket overbooking when multiple users attempt to purchase seats for the same event concurrently.
+### 5. Stop local infrastructure
 
-The current implementation uses pessimistic database locking while selecting available seats.
+```bash
+docker compose down
+```
 
-The concurrency model is currently being validated and improved using integration tests running against a real PostgreSQL database.
+Use `docker compose down -v` only when the local database and RabbitMQ volumes should also be removed.
 
----
+## Roadmap
 
-# 📌 Current Technical Improvements
+1. GitLab CI pipeline for build and automated tests.
+2. Sales API Docker image and production-profile cleanup.
+3. Stripe integration, including webhook verification and idempotent payment handling.
+4. Fulfillment worker communicating through RabbitMQ after payment confirmation and generating ticket PDFs.
+5. Final production-hardening review, bug fixing and documentation cleanup.
+6. OpenAPI/Swagger documentation (optional, but planned as a presentation improvement).
 
-The current development phase focuses on improving reliability and production-readiness before adding additional business features.
+## Project status and intent
 
-Current priorities include:
+This is an actively developed portfolio project, not a production deployment or a finished commercial ticketing product.
 
-- concurrency integration testing,
-- deterministic database locking,
-- transaction-safe RabbitMQ publishing,
-- idempotent message processing,
-- stronger request validation,
-- CI automation,
-- documentation and code cleanup.
-
----
-
-# 📄 Project Status
-
-This project is actively developed as a backend portfolio project.
-
-The goal is not only to implement the business functionality of a ticketing platform, but also to explore real-world backend engineering challenges involving concurrency, transactions, asynchronous messaging and system reliability.
+Its purpose is to build and document a realistic backend workflow involving transactions, concurrency, asynchronous messaging and failure handling. Planned features are kept separate from implemented functionality so that the repository reflects the actual state of the code.
