@@ -6,7 +6,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.jdbc.Sql;
 import pl.kacper.sales_api.common.exception.NoSuchQuantityException;
-import pl.kacper.sales_api.domain.BaseIntegrationTest;
+import pl.kacper.sales_api.domain.BaseIT;
 import pl.kacper.sales_api.domain.order.dto.OrderRequestDto;
 import pl.kacper.sales_api.domain.order.dto.TicketRequestDto;
 import pl.kacper.sales_api.domain.seat.SeatRepository;
@@ -17,7 +17,7 @@ import pl.kacper.sales_api.domain.user.UserRepository;
 import java.util.List;
 import java.util.concurrent.*;
 
-public class OrderServiceIntegrationTest extends BaseIntegrationTest {
+public class OrderServiceIT extends BaseIT {
 
     private final OrderService orderService;
     private final UserRepository userRepository;
@@ -26,7 +26,7 @@ public class OrderServiceIntegrationTest extends BaseIntegrationTest {
     private final SeatRepository seatRepository;
 
     @Autowired
-    public OrderServiceIntegrationTest(OrderService orderService, UserRepository userRepository, OrderRepository orderRepository, SeatRepository seatRepository) {
+    public OrderServiceIT(OrderService orderService, UserRepository userRepository, OrderRepository orderRepository, SeatRepository seatRepository) {
         super();
         this.orderService = orderService;
         this.userRepository = userRepository;

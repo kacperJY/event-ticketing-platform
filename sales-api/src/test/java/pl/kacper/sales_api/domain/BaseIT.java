@@ -16,7 +16,7 @@ import tools.jackson.databind.ObjectMapper;
 @ActiveProfiles("test")
 @SpringBootTest
 @AutoConfigureMockMvc
-public class BaseIntegrationTest {
+public class BaseIT {
 
     @ServiceConnection
     private static PostgreSQLContainer postgreSQLContainer;
