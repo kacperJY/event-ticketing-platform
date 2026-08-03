@@ -1,0 +1,30 @@
+name: Sales API CI
+run-name: ${{ github.actor }} is testing out GitHub Actions 🚀
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sales-api
+    steps:
+      - name: Starting message
+        run: echo "Started Sales API CI triggered by ${{github.event_name}} event."
+      - name: Checkout repository
+        uses: actions/checkout@v7
+      - name: Set up Java 25
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "25"
+          architecture: x64
+      - name: Verify project
+        run: ./mvnw --batch-mode --no-transfer-progress verify
+
+
