@@ -8,7 +8,7 @@ import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers;
-import pl.kacper.sales_api.domain.BaseIntegrationTest;
+import pl.kacper.sales_api.domain.BaseIT;
 import pl.kacper.sales_api.domain.event.dto.Address;
 import pl.kacper.sales_api.domain.event.dto.CreateEventRequestDto;
 import pl.kacper.sales_api.domain.event.dto.CreateEventResponseDto;
@@ -22,7 +22,7 @@ import java.time.Duration;
 import java.time.Instant;
 
 
-public class CreateEventIntegrationTest extends BaseIntegrationTest {
+public class CreateEventIT extends BaseIT {
 
     private final SeatRepository seatRepository;
     private final ProcessedMessageRepository processedMessageRepository;
@@ -30,7 +30,7 @@ public class CreateEventIntegrationTest extends BaseIntegrationTest {
     private final OutboxMessageRepository outboxMessageRepository;
 
     @Autowired
-    public CreateEventIntegrationTest(SeatRepository seatRepository, ProcessedMessageRepository processedMessageRepository, EventRepository eventRepository, OutboxMessageRepository outboxMessageRepository) {
+    public CreateEventIT(SeatRepository seatRepository, ProcessedMessageRepository processedMessageRepository, EventRepository eventRepository, OutboxMessageRepository outboxMessageRepository) {
         this.seatRepository = seatRepository;
         this.processedMessageRepository = processedMessageRepository;
         this.eventRepository = eventRepository;

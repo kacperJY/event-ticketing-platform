@@ -7,7 +7,7 @@ import org.springframework.amqp.rabbit.connection.CorrelationData;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
-import pl.kacper.sales_api.domain.BaseIntegrationTest;
+import pl.kacper.sales_api.domain.BaseIT;
 import pl.kacper.sales_api.domain.event.EventCategory;
 import pl.kacper.sales_api.domain.event.EventEntity;
 import pl.kacper.sales_api.domain.event.EventRepository;
@@ -28,7 +28,7 @@ import java.time.Instant;
 import java.util.UUID;
 import java.util.concurrent.*;
 
-class MessageConsumerIntegrationTest extends BaseIntegrationTest {
+class MessageConsumerIT extends BaseIT {
 
 
     private final CreateEventMessageConsumer createEventMessageConsumer;
@@ -51,9 +51,9 @@ class MessageConsumerIntegrationTest extends BaseIntegrationTest {
     private final static MessageType CREATE_EVENT_MESSAGETYPE = new MessageType(AggregateType.EVENT, OperationType.CREATE, MessagePayloadVersion.V1);
 
     @Autowired
-    public MessageConsumerIntegrationTest(CreateEventMessageConsumer createEventMessageConsumer,
-                                          SeatRepository seatRepository, ObjectMapper objectMapper, ProcessedMessageRepository processedMessageRepository,
-                                          EventRepository eventRepository, RabbitTemplate rabbitTemplate) {
+    public MessageConsumerIT(CreateEventMessageConsumer createEventMessageConsumer,
+                             SeatRepository seatRepository, ObjectMapper objectMapper, ProcessedMessageRepository processedMessageRepository,
+                             EventRepository eventRepository, RabbitTemplate rabbitTemplate) {
         this.createEventMessageConsumer = createEventMessageConsumer;
         this.seatRepository = seatRepository;
         this.objectMapper = objectMapper;
