@@ -23,6 +23,8 @@ jobs:
           distribution: temurin
           java-version: "25"
           architecture: x64
+          cache: maven
+          cache-dependency-path: sales-api/pom.xml
       - name: Verify project
         run: ./mvnw --batch-mode --no-transfer-progress verify
 
