@@ -272,19 +272,49 @@ cp rabbitmq.example rabbitmq
 
 The `rabbitmq` file is intentionally not tracked and must be created locally from `rabbitmq.example` before starting Docker Compose.
 
-The copied RabbitMQ configuration already contains the standard ports:
+The copied RabbitMQ configuration already contains the ports used by the current Compose setup:
 
 ```properties
 listeners.tcp.default=5672
 management.tcp.port=15672
 ```
 
-Fill `.env` with local PostgreSQL, RabbitMQ and JWT values.
+The copied `.env` file already contains all property names and the standard host names, ports and paths required by Compose:
 
-For the standard local setup, use:
-
-```text
+```env
 POSTGRES_DB=event-ticketing-platform-db
+POSTGRES_USER=
+POSTGRES_PASSWORD=
+
+DB_URL=jdbc:postgresql://event-ticketing-platform-db:5432/event-ticketing-platform-db
+DB_USER=
+DB_PASSWORD=
+
+SERVER_PORT=8080
+
+JWT_SECRET_KEY=
+
+RABBITMQ_DEFAULT_USER=
+RABBITMQ_DEFAULT_PASS=
+RABBITMQ_HOST=event-ticketing-platform-message-broker
+RABBITMQ_NODE_PORT=5672
+RABBITMQ_MANAGEMENT_TCP_PORT=15672
+RABBITMQ_CONFIG_FILE=/config/rabbitmq
+```
+
+Only the empty values must be filled in:
+
+- `POSTGRES_USER`,
+- `POSTGRES_PASSWORD`,
+- `DB_USER`,
+- `DB_PASSWORD`,
+- `JWT_SECRET_KEY`,
+- `RABBITMQ_DEFAULT_USER`,
+- `RABBITMQ_DEFAULT_PASS`.
+
+For the standard local setup used by this project, PostgreSQL and RabbitMQ can be initialized with:
+
+```env
 POSTGRES_USER=admin
 POSTGRES_PASSWORD=admin
 
@@ -295,27 +325,7 @@ RABBITMQ_DEFAULT_USER=admin
 RABBITMQ_DEFAULT_PASS=admin
 ```
 
-The `dev` Spring profile connects to the local PostgreSQL instance using the `admin` / `admin` credentials.
-
-For the containerized `prod` profile:
-
-- `DB_USER` must identify the PostgreSQL user created through `POSTGRES_USER`,
-- `DB_PASSWORD` must match `POSTGRES_PASSWORD`,
-- `JWT_SECRET_KEY` must contain a valid Base64-encoded signing key,
-- RabbitMQ credentials must match the values used to initialize the broker.
-
-The standard local RabbitMQ configuration is:
-
-| Setting | Default value |
-|---|---|
-| Host used by the local application | `localhost` |
-| Host used inside Compose | `event-ticketing-platform-message-broker` |
-| AMQP port | `5672` |
-| Management UI port | `15672` |
-| Username | `admin` |
-| Password | `admin` |
-
-The management UI is available at `http://localhost:15672` after RabbitMQ starts. These credentials are intended only for local development and must not be used in a real production environment.
+`JWT_SECRET_KEY` must contain a valid Base64-encoded signing key.
 
 Docker Compose reads the root `.env` file automatically.
 
@@ -329,6 +339,21 @@ The `dev` Compose profile starts:
 
 - PostgreSQL,
 - RabbitMQ with the management plugin.
+
+The Sales API is not started by this profile.
+
+The Spring `dev` profile connects to:
+
+- PostgreSQL at `localhost:5432` using the database `event-ticketing-platform-db` and credentials `admin` / `admin`,
+- RabbitMQ at `localhost:5672`, using `admin` / `admin` unless these credentials are overridden with environment variables.
+
+Because PostgreSQL is initialized from `.env`, the standard `dev` setup requires:
+
+```env
+POSTGRES_DB=event-ticketing-platform-db
+POSTGRES_USER=admin
+POSTGRES_PASSWORD=admin
+```
 
 ### 4. Start the Sales API locally
 
@@ -366,16 +391,98 @@ This profile starts:
 
 - PostgreSQL,
 - RabbitMQ,
-- the Sales API using the `prod` Spring profile.
+- the Sales API using the Spring `prod` profile.
 
-The Sales API receives its database, RabbitMQ, JWT and server configuration through environment variables defined in `.env`.
+The current Compose configuration passes the following values from `.env` to the Sales API:
 
-The `prod` Spring profile is not tied to Docker. The packaged application can also be started as a regular JVM process when all required environment variables are provided externally.
+- `SERVER_PORT`,
+- `DB_URL`,
+- `DB_USER`,
+- `DB_PASSWORD`,
+- `RABBITMQ_HOST`,
+- `RABBITMQ_NODE_PORT`,
+- `RABBITMQ_DEFAULT_USER`,
+- `RABBITMQ_DEFAULT_PASS`,
+- `JWT_SECRET_KEY`.
+
+`SPRING_PROFILES_ACTIVE=prod` is set directly in `compose.yaml`, so it does not need to be added to `.env`.
+
+The Spring `prod` profile requires all of these application properties without development fallbacks:
+
+```text
+DB_URL
+DB_USER
+DB_PASSWORD
+SERVER_PORT
+JWT_SECRET_KEY
+RABBITMQ_HOST
+RABBITMQ_NODE_PORT
+RABBITMQ_DEFAULT_USER
+RABBITMQ_DEFAULT_PASS
+```
+
+The remaining `.env` values are used by the infrastructure containers or Compose itself:
+
+- `POSTGRES_DB`, `POSTGRES_USER` and `POSTGRES_PASSWORD` initialize PostgreSQL,
+- `RABBITMQ_MANAGEMENT_TCP_PORT` publishes the RabbitMQ management UI,
+- `RABBITMQ_CONFIG_FILE` points the RabbitMQ container to the mounted configuration file.
+
+For the current container network:
+
+- `DB_URL` must use `event-ticketing-platform-db` as the database host,
+- `RABBITMQ_HOST` must use `event-ticketing-platform-message-broker`,
+- `DB_USER` and `DB_PASSWORD` must match the PostgreSQL user created through `POSTGRES_USER` and `POSTGRES_PASSWORD`,
+- `SERVER_PORT` defines both the Spring Boot server port inside the container and the host port published by the current Compose mapping.
+
+With the values from `.env.example`, the Sales API is available at:
+
+```text
+http://localhost:8080
+```
+
+The RabbitMQ management UI is available at:
+
+```text
+http://localhost:15672
+```
 
 Stop the containerized environment with:
 
 ```bash
 docker compose --profile prod down
+```
+
+## Running the packaged application outside Docker
+
+The Spring `prod` profile is not tied to Docker. A packaged JAR can be started as a regular JVM process when its required environment variables are supplied externally.
+
+When PostgreSQL and RabbitMQ run in Docker but the Sales API runs directly on the host, use host-accessible addresses instead of Compose service names:
+
+```text
+DB_URL=jdbc:postgresql://localhost:5432/event-ticketing-platform-db
+RABBITMQ_HOST=localhost
+```
+
+The application process requires:
+
+```text
+DB_URL
+DB_USER
+DB_PASSWORD
+SERVER_PORT
+JWT_SECRET_KEY
+RABBITMQ_HOST
+RABBITMQ_NODE_PORT
+RABBITMQ_DEFAULT_USER
+RABBITMQ_DEFAULT_PASS
+```
+
+`POSTGRES_*`, `RABBITMQ_MANAGEMENT_TCP_PORT` and `RABBITMQ_CONFIG_FILE` configure the infrastructure containers and are not required by the standalone Sales API process.
+
+Start the packaged application from `sales-api/target` with:
+
+```bash
+java -jar sales-api.jar --spring.profiles.active=prod
 ```
 
 ## Roadmap
