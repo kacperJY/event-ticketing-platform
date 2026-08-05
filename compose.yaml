@@ -17,6 +17,7 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
+    profiles: ["prod","dev"]
   event-ticketing-platform-message-broker:
     image: rabbitmq:4.3.2-management
     container_name: "event-ticketing-platform-message-broker"
@@ -32,8 +33,38 @@ services:
       - event-ticketing-platform-message-broker-volume:/var/lib/rabbitmq
     networks:
       - main-network
-
-
+    healthcheck:
+      test: [ "CMD-SHELL", "rabbitmq-diagnostics check_port_connectivity" ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    profiles: ["prod","dev"]
+  event-ticketing-platform-sales-api:
+    build: ./sales-api
+    image: kacperjn/sales-api
+    container_name: "event-ticketing-platform-sales-api"
+    pull_policy: build
+    networks:
+      - main-network
+    ports:
+      - "${SERVER_PORT}:${SERVER_PORT}"
+    environment:
+      - "SERVER_PORT"
+      - "SPRING_PROFILES_ACTIVE=prod"
+      - "DB_URL"
+      - "DB_USER"
+      - "DB_PASSWORD"
+      - "RABBITMQ_HOST"
+      - "RABBITMQ_NODE_PORT"
+      - "RABBITMQ_DEFAULT_USER"
+      - "RABBITMQ_DEFAULT_PASS"
+      - "JWT_SECRET_KEY"
+    depends_on:
+      event-ticketing-platform-db:
+        condition: service_healthy
+      event-ticketing-platform-message-broker:
+        condition: service_healthy
+    profiles: ["prod"]
 volumes:
   event-ticketing-platform-db-volume:
   event-ticketing-platform-message-broker-volume:

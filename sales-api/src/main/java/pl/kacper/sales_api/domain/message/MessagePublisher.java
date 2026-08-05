@@ -1,6 +1,5 @@
 package pl.kacper.sales_api.domain.message;
 
-import org.hibernate.exception.LockTimeoutException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.amqp.AmqpException;
@@ -9,8 +8,10 @@ import org.springframework.amqp.rabbit.connection.CorrelationData;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.CannotAcquireLockException;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.stereotype.Component;
+import pl.kacper.sales_api.common.exception.ConcurrencyClaimMessageException;
 import pl.kacper.sales_api.domain.message.property.MessageStatus;
 
 import java.nio.charset.StandardCharsets;
@@ -102,13 +103,17 @@ public class MessagePublisher {
             try {
                 outboxMessageEntity = outboxMessageTransactionService.markPendingMessageAsProcessing(messageId); // Locking single row
                 permitsAssigned = true;
-            } catch (LockTimeoutException e) {
-                LOGGER.error(
-                        """
-                                Error message: {}
-                                OutboxMessageEntity: messageId={}
-                                """, e.getMessage(), messageId, e
+            } catch (CannotAcquireLockException e) {
+                LOGGER.debug(
+                        "Immediate publishing skipped because message [ID={}] is currently claimed by another publisher",
+                        messageId
                 );
+                return;
+            } catch (ConcurrencyClaimMessageException e) {
+                LOGGER.debug("""
+                        Immediate send message[ID={}] has been skipped, because message is already claim by other process  \n
+                        ConcurrencyClaimMessageException: {}
+                        """, messageId, e.getMessage());
                 return;
             } finally {
                 if (!permitsAssigned)

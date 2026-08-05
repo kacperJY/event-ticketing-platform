@@ -1,6 +1,4 @@
 spring:
-  profiles:
-    active: dev
   application:
     name: sales-api
   datasource:
@@ -12,15 +10,11 @@ spring:
     hibernate:
       ddl-auto: validate
     database: postgresql
-    generate-ddl: true
-    show-sql: true
     open-in-view: false
     properties:
       hibernate:
-        generate_statistics: true
         order_updates: true
         order_inserts: true
-        show_sql: true
         jdbc:
           batch_size: ${database.batch-size}
   threads:
@@ -42,7 +36,6 @@ spring:
   flyway:
     locations: classpath:db/migration
     enabled: true
-
 
 database:
   batch-size: 50

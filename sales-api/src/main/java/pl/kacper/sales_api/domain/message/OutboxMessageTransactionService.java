@@ -45,7 +45,7 @@ public class OutboxMessageTransactionService {
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public OutboxMessageEntity markPendingMessageAsProcessing(UUID messageId) {
         OutboxMessageEntity outboxMessageEntity = outboxMessageRepository.findByStatusAndIDWithLockingNoWait(messageId, MessageStatus.PENDING)
-                .orElseThrow(() -> new ConcurrencyClaimMessageException("Message with ID=%s doest not exists".formatted(messageId)));
+                .orElseThrow(() -> new ConcurrencyClaimMessageException("Message with ID=%s does not exist or has already been claimed by another process".formatted(messageId)));
 
         outboxMessageEntity.setMessageStatus(MessageStatus.PROCESSING);
         outboxMessageEntity.setLockedAt(Instant.now());

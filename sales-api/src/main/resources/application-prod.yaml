@@ -3,12 +3,13 @@ spring:
     url: ${DB_URL}
     username: ${DB_USER}
     password: ${DB_PASSWORD}
+
   jpa:
-    hibernate:
-      ddl-auto: validate
+    show-sql: false
     properties:
       hibernate:
         generate_statistics: false
+
   rabbitmq:
     username: ${RABBITMQ_DEFAULT_USER}
     password: ${RABBITMQ_DEFAULT_PASS}
@@ -16,3 +17,6 @@ spring:
     host: ${RABBITMQ_HOST}
 
 jwt-secret-key: ${JWT_SECRET_KEY}
+
+server:
+  port: ${SERVER_PORT}

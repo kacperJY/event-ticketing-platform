@@ -160,6 +160,7 @@
     </dependencies>
 
     <build>
+        <finalName>sales-api</finalName>
         <plugins>
             <plugin>
                 <groupId>org.springframework.boot</groupId>
