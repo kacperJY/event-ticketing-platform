@@ -1,14 +1,8 @@
-Unstaged changes after reset:
-M	.env.example
-M	compose.yaml
-M	rabbitmq.example
-M	sales-api/pom.xml
-M	sales-api/src/main/java/pl/kacper/sales_api/SalesApiApplication.java
-M	sales-api/src/main/java/pl/kacper/sales_api/domain/message/MessagePublisher.java
-M	sales-api/src/main/java/pl/kacper/sales_api/domain/message/MessageScheduledScannerService.java
-M	sales-api/src/main/java/pl/kacper/sales_api/domain/message/OutboxMessageTransactionService.java
-M	sales-api/src/main/resources/application-dev.yaml
-M	sales-api/src/main/resources/application-prod.yaml
-D	sales-api/src/main/resources/application-test.yaml
-M	sales-api/src/main/resources/application.yaml
-M	sales-api/src/test/resources/application-test.yaml
+jwt-secret-key: aW5kaXZpZHVhbGRhdWdodGVyc2xhYnNkaWdyZWxhdGVkemlwcGVyZWFnZXJtYWtlbG9uZ2hvdXNlaHVydGFsbw==
+
+rabbitmq:
+  consumer:
+    max-retries: 3
+    max-delay: 2
+    multiplier: 1.0
+    delay: 2
