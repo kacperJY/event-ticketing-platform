@@ -3,12 +3,17 @@ spring:
     url: jdbc:postgresql://localhost:5432/event-ticketing-platform-db
     username: admin
     password: admin
+
   jpa:
-    hibernate:
-      ddl-auto: validate
+    show-sql: true
+    properties:
+      hibernate:
+        generate_statistics: true
+
   rabbitmq:
     username: ${RABBITMQ_DEFAULT_USER:admin}
     password: ${RABBITMQ_DEFAULT_PASS:admin}
     port: ${RABBITMQ_NODE_PORT:5672}
     host: ${RABBITMQ_HOST:localhost}
+
 jwt-secret-key: gcKshT5geu7UzT0jGpjeMJYwPdW0mAGaCsMH0iWThscYEb22jHvlR2pDt2oaKnOW
