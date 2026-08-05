@@ -8,7 +8,7 @@
 
 Backend portfolio project for event management, seat inventory and order creation. The current implementation focuses on correctness under concurrent requests and reliable asynchronous processing with PostgreSQL and RabbitMQ.
 
-> **Project status:** active development. The Sales API and the event-to-seat messaging flow are implemented and tested. Stripe payments, ticket fulfillment/PDF generation, the application Docker image, CI and OpenAPI documentation are not implemented yet.
+> **Project status:** active development. The Sales API, event-to-seat messaging flow, automated verification pipeline and containerized runtime are implemented and tested. Stripe payments, ticket fulfillment/PDF generation and OpenAPI documentation are not implemented yet.
 
 ## Current scope
 
@@ -21,10 +21,12 @@ Backend portfolio project for event management, seat inventory and order creatio
 | Transactional outbox | Implemented |
 | Idempotent consumer, retries and DLQ | Implemented |
 | Order creation and concurrent seat locking | Implemented |
+| Automated verification | Implemented with GitHub Actions and `mvn verify` |
+| Sales API Docker image | Implemented |
+| Docker Compose runtime profiles | Implemented for `dev` and `prod` |
 | Payments | Planned — orders currently remain `PENDING` |
 | Fulfillment worker | Spring Boot scaffold only |
 | PDF and email delivery | Planned |
-| CI and application image | Planned |
 
 ## Technical focus
 
@@ -34,7 +36,9 @@ The project is primarily used to explore practical backend engineering problems 
 - coordinating database transactions with message publishing,
 - handling at-least-once message delivery and duplicates,
 - recovering from publishing and consumer failures,
-- validating behavior against real PostgreSQL and RabbitMQ instances.
+- coordinating concurrent outbox publishers,
+- validating behavior against real PostgreSQL and RabbitMQ instances,
+- building and running the application in a reproducible containerized environment.
 
 ## Architecture
 
@@ -66,9 +70,9 @@ The repository is organized as a small monorepo:
 
 ```text
 event-ticketing-platform/
-├── sales-api/             # implemented application
+├── sales-api/             # implemented application and Docker image
 ├── fulfillment-worker/    # scaffold for future ticket fulfillment
-├── compose.yaml           # PostgreSQL and RabbitMQ for local development
+├── compose.yaml           # development infrastructure and containerized runtime
 ├── .env.example
 └── rabbitmq.example
 ```
@@ -105,6 +109,8 @@ Database transaction
 
 The event and its outbox record are persisted in the same transaction. After commit, the publisher attempts immediate delivery, while a scheduled scanner provides a fallback for pending or stale messages.
 
+Concurrent publishers claim pending outbox records with PostgreSQL pessimistic locking and `NOWAIT`. If another publisher has already locked or processed the message, the immediate publishing attempt is skipped and processing remains with the publisher that successfully claimed it.
+
 Publisher confirms and returned-message handling update the outbox lifecycle:
 
 ```text
@@ -136,6 +142,7 @@ Payment capture and the transition to a completed purchase are intentionally not
 | Duplicate or concurrent delivery | Atomic insert into `processed_messages` with a composite primary key |
 | Temporary publisher failure | Outbox retry schedule and `PENDING` requeue |
 | Publisher process stops while a message is `PROCESSING` | Recovery of stale processing records |
+| Multiple publishers attempt to claim the same outbox message | PostgreSQL pessimistic locking with `NOWAIT` and graceful claim-loss handling |
 | Unroutable message | Publisher returns and `FAILED` outbox status |
 | Invalid message contract or exhausted consumer retries | Dead-letter exchange and dedicated DLQ |
 | Concurrent orders compete for the same seats | PostgreSQL pessimistic locking with `SKIP LOCKED` |
@@ -153,6 +160,7 @@ Payment capture and the transition to a completed purchase are intentionally not
 - asynchronous seat generation,
 - transactional outbox with publisher confirms and returns,
 - immediate publishing with scheduled fallback and stale-message recovery,
+- concurrent outbox claim handling,
 - idempotent RabbitMQ consumer,
 - bounded consumer retries and dead-letter handling,
 - order creation with concurrent seat protection,
@@ -161,7 +169,9 @@ Payment capture and the transition to a completed purchase are intentionally not
 - RFC 7807-style error responses through Spring `ProblemDetail`,
 - Bean Validation and JPA auditing,
 - separate `dev`, `test` and `prod` configuration profiles,
-- Docker Compose infrastructure for PostgreSQL and RabbitMQ.
+- multi-stage Sales API Docker image running as a non-root user,
+- Docker Compose profiles for development infrastructure and the full containerized runtime,
+- GitHub Actions verification pipeline.
 
 ## API overview
 
@@ -185,6 +195,7 @@ Covered integration scenarios include:
 - concurrent orders cannot overbook available seats,
 - multi-event orders acquire locks consistently,
 - sequential and concurrent duplicate message delivery is idempotent,
+- concurrent outbox publishers cannot claim the same pending message,
 - successful RabbitMQ publishing and consumption,
 - invalid message type and payload are dead-lettered,
 - retry exhaustion rolls back database work and moves the message to the DLQ,
@@ -198,6 +209,8 @@ cd sales-api
 ```
 
 Docker must be running because the integration tests start PostgreSQL and RabbitMQ containers.
+
+The same verification command is executed automatically by GitHub Actions for pull requests targeting `main` and for pushes to `main`.
 
 ## Tech stack
 
@@ -218,7 +231,9 @@ Docker must be running because the integration tests start PostgreSQL and Rabbit
 - PostgreSQL 17 for local development
 - RabbitMQ 4
 - Flyway
-- Docker and Docker Compose
+- multi-stage Docker image for the Sales API
+- Docker Compose `dev` and `prod` profiles
+- GitHub Actions
 - Maven Wrapper
 
 ### Testing
@@ -255,41 +270,67 @@ cp .env.example .env
 cp rabbitmq.example rabbitmq
 ```
 
-Fill `.env` with local PostgreSQL, RabbitMQ and JWT values. The current `dev` profile expects the PostgreSQL database name `event-ticketing-platform-db`.
+The `rabbitmq` file is intentionally not tracked and must be created locally from `rabbitmq.example` before starting Docker Compose.
 
-The default RabbitMQ settings used by the `dev` profile are:
-
-| Setting | Default value |
-|---|---|
-| Host | `localhost` |
-| AMQP port | `5672` |
-| Management UI port | `15672` |
-| Username | `admin` |
-| Password | `admin` |
-
-The management UI is available at `http://localhost:15672` after RabbitMQ starts. These credentials are intended only for local development and must not be used in production. All values can be overridden with environment variables.
-
-For a standard local RabbitMQ setup, `rabbitmq` should define the same ports as `.env`, for example:
+The copied RabbitMQ configuration already contains the standard ports:
 
 ```properties
 listeners.tcp.default=5672
 management.tcp.port=15672
 ```
 
-Docker Compose reads the root `.env` file automatically. With the `dev` profile, the Sales API can use the default RabbitMQ credentials listed above and the development-only JWT fallback configured in `application-dev.yaml`. Environment variables still override those defaults. When using shell environment variables, use `JWT_SECRET_KEY` for the Spring property `jwt-secret-key`.
+Fill `.env` with local PostgreSQL, RabbitMQ and JWT values.
 
-### 3. Start PostgreSQL and RabbitMQ
+For the standard local setup, use:
 
-```bash
-docker compose up -d
+```text
+POSTGRES_DB=event-ticketing-platform-db
+POSTGRES_USER=admin
+POSTGRES_PASSWORD=admin
+
+DB_USER=admin
+DB_PASSWORD=admin
+
+RABBITMQ_DEFAULT_USER=admin
+RABBITMQ_DEFAULT_PASS=admin
 ```
 
-The compose file starts:
+The `dev` Spring profile connects to the local PostgreSQL instance using the `admin` / `admin` credentials.
+
+For the containerized `prod` profile:
+
+- `DB_USER` must identify the PostgreSQL user created through `POSTGRES_USER`,
+- `DB_PASSWORD` must match `POSTGRES_PASSWORD`,
+- `JWT_SECRET_KEY` must contain a valid Base64-encoded signing key,
+- RabbitMQ credentials must match the values used to initialize the broker.
+
+The standard local RabbitMQ configuration is:
+
+| Setting | Default value |
+|---|---|
+| Host used by the local application | `localhost` |
+| Host used inside Compose | `event-ticketing-platform-message-broker` |
+| AMQP port | `5672` |
+| Management UI port | `15672` |
+| Username | `admin` |
+| Password | `admin` |
+
+The management UI is available at `http://localhost:15672` after RabbitMQ starts. These credentials are intended only for local development and must not be used in a real production environment.
+
+Docker Compose reads the root `.env` file automatically.
+
+### 3. Start development infrastructure
+
+```bash
+docker compose --profile dev up -d
+```
+
+The `dev` Compose profile starts:
 
 - PostgreSQL,
 - RabbitMQ with the management plugin.
 
-### 4. Start the Sales API
+### 4. Start the Sales API locally
 
 ```bash
 cd sales-api
@@ -303,25 +344,49 @@ The `dev` profile seeds local accounts for development purposes only:
 | `USER` | `user@gmail.com` | `User123` |
 | `ADMIN` | `admin@gmail.com` | `Admin123` |
 
-### 5. Stop local infrastructure
+### 5. Stop development infrastructure
+
+From the repository root:
 
 ```bash
-docker compose down
+docker compose --profile dev down
 ```
 
-Use `docker compose down -v` only when the local database and RabbitMQ volumes should also be removed.
+Use the `-v` option only when the local PostgreSQL and RabbitMQ volumes should also be removed.
+
+## Running the containerized application
+
+The `prod` Compose profile builds the Sales API image and starts the complete environment:
+
+```bash
+docker compose --profile prod up --build
+```
+
+This profile starts:
+
+- PostgreSQL,
+- RabbitMQ,
+- the Sales API using the `prod` Spring profile.
+
+The Sales API receives its database, RabbitMQ, JWT and server configuration through environment variables defined in `.env`.
+
+The `prod` Spring profile is not tied to Docker. The packaged application can also be started as a regular JVM process when all required environment variables are provided externally.
+
+Stop the containerized environment with:
+
+```bash
+docker compose --profile prod down
+```
 
 ## Roadmap
 
-1. GitLab CI pipeline for build and automated tests.
-2. Sales API Docker image and production-profile cleanup.
-3. Stripe integration, including webhook verification and idempotent payment handling.
-4. Fulfillment worker communicating through RabbitMQ after payment confirmation and generating ticket PDFs.
-5. Final production-hardening review, bug fixing and documentation cleanup.
-6. OpenAPI/Swagger documentation (optional, but planned as a presentation improvement).
+1. Stripe integration, including webhook verification and idempotent payment handling.
+2. Fulfillment worker communicating through RabbitMQ after payment confirmation and generating ticket PDFs.
+3. Final production-hardening review, bug fixing and documentation cleanup.
+4. OpenAPI/Swagger documentation (optional, but planned as a presentation improvement).
 
 ## Project status and intent
 
 This is an actively developed portfolio project, not a production deployment or a finished commercial ticketing product.
 
-Its purpose is to build and document a realistic backend workflow involving transactions, concurrency, asynchronous messaging and failure handling. Planned features are kept separate from implemented functionality so that the repository reflects the actual state of the code.
+Its purpose is to build and document a realistic backend workflow involving transactions, concurrency, asynchronous messaging, failure handling and containerized application delivery. Planned features are kept separate from implemented functionality so that the repository reflects the actual state of the code.
