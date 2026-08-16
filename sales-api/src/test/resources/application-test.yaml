@@ -6,3 +6,9 @@ rabbitmq:
     max-delay: 2
     multiplier: 1.0
     delay: 2
+
+stripe:
+  secret-key: ""
+
+database:
+  batch-size: 50
