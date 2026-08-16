@@ -1,4 +1,4 @@
-package pl.kacper.sales_api.domain.eventTicket;
+package pl.kacper.sales_api.domain.order;
 
 import jakarta.persistence.*;
 import lombok.Getter;
@@ -6,22 +6,20 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 import pl.kacper.sales_api.domain.BaseEntity;
 import pl.kacper.sales_api.domain.event.EventEntity;
-import pl.kacper.sales_api.domain.order.OrderEntity;
 import pl.kacper.sales_api.domain.seat.SeatEntity;
-
-import java.util.UUID;
 
 @NoArgsConstructor
 @Getter
 
 @Entity
-@Table(name = "tickets")
-public class TicketEntity extends BaseEntity {
+@Table(name = "order_items")
+public class OrderItemEntity extends BaseEntity {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.UUID)
-    @Column(name = "ticket_id")
-    private UUID ticketId;
+    @GeneratedValue(strategy = GenerationType.SEQUENCE, generator = "orderItemGen")
+    @SequenceGenerator(name = "orderItemGen", sequenceName = "order_items_seq", allocationSize = 50)
+    @Column(name = "order_item_id")
+    private Long orderItemId;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "event_id")
@@ -38,7 +36,7 @@ public class TicketEntity extends BaseEntity {
 
     private long price;
 
-    public TicketEntity(long price, SeatEntity seat, EventEntity event) {
+    public OrderItemEntity(long price, SeatEntity seat, EventEntity event) {
         this.price = price;
         this.seat = seat;
         this.event = event;

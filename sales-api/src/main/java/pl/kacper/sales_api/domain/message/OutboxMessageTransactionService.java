@@ -5,7 +5,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
-import pl.kacper.sales_api.common.exception.ConcurrencyClaimMessageException;
+import pl.kacper.sales_api.common.exception.NoSuchDbRecordException;
 import pl.kacper.sales_api.domain.message.property.MessageStatus;
 
 import java.time.Instant;
@@ -45,7 +45,7 @@ public class OutboxMessageTransactionService {
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public OutboxMessageEntity markPendingMessageAsProcessing(UUID messageId) {
         OutboxMessageEntity outboxMessageEntity = outboxMessageRepository.findByStatusAndIDWithLockingNoWait(messageId, MessageStatus.PENDING)
-                .orElseThrow(() -> new ConcurrencyClaimMessageException("Message with ID=%s does not exist or has already been claimed by another process".formatted(messageId)));
+                .orElseThrow(() -> new NoSuchDbRecordException("Message with ID=%s does not exist".formatted(messageId)));
 
         outboxMessageEntity.setMessageStatus(MessageStatus.PROCESSING);
         outboxMessageEntity.setLockedAt(Instant.now());

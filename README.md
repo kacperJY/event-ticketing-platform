@@ -6,9 +6,9 @@
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-17-4169E1)
 ![RabbitMQ](https://img.shields.io/badge/RabbitMQ-4-FF6600)
 
-Backend portfolio project for event management, seat inventory and order creation. The current implementation focuses on correctness under concurrent requests and reliable asynchronous processing with PostgreSQL and RabbitMQ.
+Backend portfolio project for event management, seat inventory, order processing and payment initialization. The project focuses on correctness under concurrent requests, transaction boundaries, reliable asynchronous messaging and failure handling with PostgreSQL, RabbitMQ and Stripe.
 
-> **Project status:** active development. The Sales API, event-to-seat messaging flow, automated verification pipeline and containerized runtime are implemented and tested. Stripe payments, ticket fulfillment/PDF generation and OpenAPI documentation are not implemented yet.
+> **Project status:** active development. The Sales API, event-to-seat messaging flow, order expiration lifecycle, Stripe PaymentIntent initialization, Docker runtime and CI are implemented. Stripe webhook handling and post-payment fulfillment are the main remaining areas.
 
 ## Current scope
 
@@ -21,12 +21,14 @@ Backend portfolio project for event management, seat inventory and order creatio
 | Transactional outbox | Implemented |
 | Idempotent consumer, retries and DLQ | Implemented |
 | Order creation and concurrent seat locking | Implemented |
-| Automated verification | Implemented with GitHub Actions and `mvn verify` |
-| Sales API Docker image | Implemented |
-| Docker Compose runtime profiles | Implemented for `dev` and `prod` |
-| Payments | Planned — orders currently remain `PENDING` |
+| Order expiration and seat release | Implemented |
+| Stripe PaymentIntent initialization | Implemented |
+| Stripe webhooks and final payment state transitions | Planned / next development stage |
 | Fulfillment worker | Spring Boot scaffold only |
 | PDF and email delivery | Planned |
+| Sales API Docker image | Implemented |
+| GitHub Actions CI | Implemented |
+| OpenAPI documentation | Planned |
 
 ## Technical focus
 
@@ -36,9 +38,10 @@ The project is primarily used to explore practical backend engineering problems 
 - coordinating database transactions with message publishing,
 - handling at-least-once message delivery and duplicates,
 - recovering from publishing and consumer failures,
-- coordinating concurrent outbox publishers,
-- validating behavior against real PostgreSQL and RabbitMQ instances,
-- building and running the application in a reproducible containerized environment.
+- designing transaction boundaries around an external payment provider,
+- handling order expiration concurrently with payment initialization,
+- using pessimistic locking, `NOWAIT` and `SKIP LOCKED` for explicit concurrency control,
+- validating behavior against real PostgreSQL and RabbitMQ instances.
 
 ## Architecture
 
@@ -49,9 +52,12 @@ Client
 Sales API (Spring Boot)
   |
   |-- PostgreSQL
-  |     |-- users, events, seats, orders, tickets
+  |     |-- users, events, seats, orders, order_items
   |     |-- outbox_messages
   |     `-- processed_messages
+  |
+  |-- Stripe
+  |     `-- PaymentIntent create / retrieve
   |
   `-- RabbitMQ
         |
@@ -63,16 +69,17 @@ Sales API (Spring Boot)
               `-- batch seat generation
 
 Fulfillment Worker
-  `-- scaffold only; post-payment ticket delivery is planned
+  `-- scaffold only; post-payment ticket generation and delivery are planned
 ```
 
 The repository is organized as a small monorepo:
 
 ```text
 event-ticketing-platform/
-├── sales-api/             # implemented application and Docker image
+├── sales-api/             # main application
 ├── fulfillment-worker/    # scaffold for future ticket fulfillment
-├── compose.yaml           # development infrastructure and containerized runtime
+├── .github/workflows/     # Sales API CI
+├── compose.yaml           # dev infrastructure and prod runtime
 ├── .env.example
 └── rabbitmq.example
 ```
@@ -109,8 +116,6 @@ Database transaction
 
 The event and its outbox record are persisted in the same transaction. After commit, the publisher attempts immediate delivery, while a scheduled scanner provides a fallback for pending or stale messages.
 
-Concurrent publishers claim pending outbox records with PostgreSQL pessimistic locking and `NOWAIT`. If another publisher has already locked or processed the message, the immediate publishing attempt is skipped and processing remains with the publisher that successfully claimed it.
-
 Publisher confirms and returned-message handling update the outbox lifecycle:
 
 ```text
@@ -123,15 +128,80 @@ The consumer validates message metadata and payload, uses a database-backed idem
 
 ### Order creation
 
-Authenticated users can create an order for one or more events. The current flow:
+Authenticated users can create an order for one or more events. The flow:
 
 - verifies that all requested events exist,
 - sorts event requests to acquire locks in a deterministic order,
-- selects available seats using pessimistic database locking,
+- selects available seats using pessimistic database locking with `SKIP LOCKED`,
 - changes selected seats to `LOCKED_FOR_CHECKOUT`,
-- creates ticket records and a `PENDING` order.
+- creates `OrderItem` records associated with the selected seats and events,
+- creates a `PENDING` order with `PaymentStatus.NOT_INITIALIZED`,
+- assigns an expiration time to the order.
 
-Payment capture and the transition to a completed purchase are intentionally not implemented yet.
+Tickets are intentionally not created during checkout. Ticket creation belongs to the future post-payment fulfillment stage.
+
+### Order expiration
+
+Pending orders have a limited checkout lifetime. Expiration is handled in two ways:
+
+- a scheduled batch scanner finds expired orders and uses `SKIP LOCKED` so one busy order does not block cleanup of other orders,
+- payment initialization performs an immediate expiration check using fail-fast locking before communicating with Stripe.
+
+When an eligible order expires:
+
+```text
+OrderStatus.PENDING → OrderStatus.EXPIRED
+Seats: LOCKED_FOR_CHECKOUT → AVAILABLE
+```
+
+Expiration currently does not change `PaymentStatus`. Final payment-state reconciliation is intentionally deferred to the webhook/payment-lifecycle stage.
+
+### Stripe PaymentIntent initialization
+
+The Sales API currently supports creating or retrieving a Stripe PaymentIntent for an authenticated user's order:
+
+```text
+POST /api/v1/order/{order_id}/payment-intent
+```
+
+The create path is deliberately split around the external Stripe call:
+
+```text
+TX1
+  |
+  |-- validate ownership
+  |-- validate Order / Payment state
+  `-- check expiration
+        |
+        v
+Commit
+        |
+        v
+Stripe PaymentIntent CREATE
+(same deterministic idempotency key for the same Order)
+        |
+        v
+TX2
+  |
+  |-- re-check expiration
+  |-- acquire Order lock with NOWAIT
+  |-- revalidate local state
+  `-- persist PaymentIntent ID, initialization time and PENDING payment state
+        |
+        v
+Commit
+        |
+        v
+Return client secret
+```
+
+No database transaction is kept open while waiting for Stripe. The client secret is returned only after the local TX2 update succeeds.
+
+If the Order already has an initialized pending PaymentIntent, the API retrieves the existing Stripe object instead of creating another one and revalidates the local Order after the external call.
+
+Stripe `idempotency_key_in_use` conflicts are retried a bounded number of times using the same idempotency key. Other Stripe communication failures are translated into controlled external-service errors.
+
+Webhook verification and the final mapping of Stripe payment outcomes to local `PaymentStatus` / `OrderStatus` transitions are intentionally left for the next development stage.
 
 ## Reliability and concurrency decisions
 
@@ -142,11 +212,15 @@ Payment capture and the transition to a completed purchase are intentionally not
 | Duplicate or concurrent delivery | Atomic insert into `processed_messages` with a composite primary key |
 | Temporary publisher failure | Outbox retry schedule and `PENDING` requeue |
 | Publisher process stops while a message is `PROCESSING` | Recovery of stale processing records |
-| Multiple publishers attempt to claim the same outbox message | PostgreSQL pessimistic locking with `NOWAIT` and graceful claim-loss handling |
 | Unroutable message | Publisher returns and `FAILED` outbox status |
 | Invalid message contract or exhausted consumer retries | Dead-letter exchange and dedicated DLQ |
 | Concurrent orders compete for the same seats | PostgreSQL pessimistic locking with `SKIP LOCKED` |
 | Multi-event orders acquire locks in a different order | Deterministic event ordering before seat selection |
+| Expired orders must release seats without blocking the whole cleanup batch | Scheduled cleanup with `SKIP LOCKED` |
+| Payment flow races with another process working on the same Order | Immediate fail-fast locking with `NOWAIT` |
+| Stripe call must not run inside a long database transaction | Separate TX1 → external Stripe call → TX2 flow |
+| Stripe PaymentIntent creation may be retried | Deterministic Stripe idempotency key based on Order ID |
+| Stripe succeeds but local TX2 cannot safely persist the result | Client secret is not returned; the request fails and can be retried |
 
 ## Implemented features
 
@@ -160,18 +234,25 @@ Payment capture and the transition to a completed purchase are intentionally not
 - asynchronous seat generation,
 - transactional outbox with publisher confirms and returns,
 - immediate publishing with scheduled fallback and stale-message recovery,
-- concurrent outbox claim handling,
 - idempotent RabbitMQ consumer,
 - bounded consumer retries and dead-letter handling,
 - order creation with concurrent seat protection,
+- deterministic lock ordering for multi-event orders,
+- `OrderItem` model for pre-payment order contents,
+- order expiration with automatic seat release,
+- scheduled expiration cleanup with `SKIP LOCKED`,
+- fail-fast order claims with `NOWAIT`,
+- Stripe PaymentIntent create/retrieve flow,
+- deterministic Stripe idempotency keys and bounded conflict retries,
+- separate local transactions before and after the Stripe call,
 - batch inserts for seat generation,
 - Flyway database migrations,
 - RFC 7807-style error responses through Spring `ProblemDetail`,
 - Bean Validation and JPA auditing,
 - separate `dev`, `test` and `prod` configuration profiles,
-- multi-stage Sales API Docker image running as a non-root user,
-- Docker Compose profiles for development infrastructure and the full containerized runtime,
-- GitHub Actions verification pipeline.
+- multi-stage non-root Docker image for the Sales API,
+- Docker Compose `dev` and `prod` profiles,
+- GitHub Actions CI running the Sales API verification suite.
 
 ## API overview
 
@@ -183,19 +264,28 @@ Payment capture and the transition to a completed purchase are intentionally not
 | `GET` | `/api/v1/event/{eventID}` | Public | Get event details and available-seat count |
 | `POST` | `/api/v1/admin/event` | `ADMIN` | Create an event and trigger asynchronous seat generation |
 | `POST` | `/api/v1/order` | Authenticated | Create a pending order and lock seats for checkout |
+| `POST` | `/api/v1/order/{order_id}/payment-intent` | Authenticated | Create or retrieve a Stripe PaymentIntent for an Order |
 
 ## Testing
 
 The project contains unit tests and integration tests.
 
-Unit tests use JUnit 5, Mockito and AssertJ. Integration tests run the Spring context against real PostgreSQL and RabbitMQ containers provided by Testcontainers.
+Unit tests use JUnit 5, Mockito and AssertJ. Integration tests run the Spring context against real PostgreSQL and RabbitMQ containers provided by Testcontainers. Stripe SDK behavior is isolated in automated tests; real Stripe sandbox calls are used only for manual verification.
 
-Covered integration scenarios include:
+Covered scenarios include:
 
 - concurrent orders cannot overbook available seats,
-- multi-event orders acquire locks consistently,
+- multi-event orders acquire seat locks consistently,
+- non-expired orders remain valid for checkout,
+- expired orders transition to `EXPIRED` and release their seats,
+- payment-state updates fail fast when another transaction holds the Order lock,
+- immediate expiration checks fail safely when the Order cannot be claimed,
+- scheduled expiration cleanup skips locked orders and processes other expired orders,
+- successful payment initialization state is committed to PostgreSQL,
+- Stripe PaymentIntent create and retrieve orchestration,
+- bounded retry behavior for Stripe idempotency conflicts,
+- Stripe provider failures do not update local payment state,
 - sequential and concurrent duplicate message delivery is idempotent,
-- concurrent outbox publishers cannot claim the same pending message,
 - successful RabbitMQ publishing and consumption,
 - invalid message type and payload are dead-lettered,
 - retry exhaustion rolls back database work and moves the message to the DLQ,
@@ -210,7 +300,16 @@ cd sales-api
 
 Docker must be running because the integration tests start PostgreSQL and RabbitMQ containers.
 
-The same verification command is executed automatically by GitHub Actions for pull requests targeting `main` and for pushes to `main`.
+### Continuous integration
+
+GitHub Actions runs the Sales API verification suite for pushes to `main` and pull requests targeting `main`:
+
+```text
+checkout
+→ Java 25
+→ Maven dependency cache
+→ ./mvnw verify
+```
 
 ## Tech stack
 
@@ -223,16 +322,16 @@ The same verification command is executed automatically by GitHub Actions for pu
 - Spring Security
 - Spring AMQP
 - Bean Validation
+- Stripe Java SDK
 - JJWT
 - virtual threads
 
 ### Data and infrastructure
 
-- PostgreSQL 17 for local development
+- PostgreSQL 17
 - RabbitMQ 4
 - Flyway
-- multi-stage Docker image for the Sales API
-- Docker Compose `dev` and `prod` profiles
+- Docker and Docker Compose
 - GitHub Actions
 - Maven Wrapper
 
@@ -251,6 +350,7 @@ The same verification command is executed automatically by GitHub Actions for pu
 
 - Java 25
 - Docker with Docker Compose
+- Stripe sandbox account / test secret key for the payment-initialization endpoint
 
 A global Maven installation is not required because both applications include Maven Wrapper.
 
@@ -261,101 +361,78 @@ git clone https://github.com/kacperJY/event-ticketing-platform.git
 cd event-ticketing-platform
 ```
 
-### 2. Prepare environment files
+### 2. Prepare local infrastructure configuration
 
-Copy the examples:
+Copy the root configuration examples:
 
 ```bash
 cp .env.example .env
 cp rabbitmq.example rabbitmq
 ```
 
-The `rabbitmq` file is intentionally not tracked and must be created locally from `rabbitmq.example` before starting Docker Compose.
+The `dev` profile runs the Sales API directly on the host and connects to PostgreSQL and RabbitMQ through `localhost`.
 
-The copied RabbitMQ configuration already contains the ports used by the current Compose setup:
+For the default development configuration, set the local infrastructure credentials in `.env` to match `application-dev.yaml`:
+
+```properties
+POSTGRES_DB=event-ticketing-platform-db
+POSTGRES_USER=admin
+POSTGRES_PASSWORD=admin
+
+RABBITMQ_DEFAULT_USER=admin
+RABBITMQ_DEFAULT_PASS=admin
+RABBITMQ_NODE_PORT=5672
+RABBITMQ_MANAGEMENT_TCP_PORT=15672
+RABBITMQ_CONFIG_FILE=/config/rabbitmq
+```
+
+Other production-oriented values present in `.env.example` are used by the `prod` Compose profile and are not required by the locally running DEV JVM.
+
+For RabbitMQ, the `rabbitmq` file should expose the same ports, for example:
 
 ```properties
 listeners.tcp.default=5672
 management.tcp.port=15672
 ```
 
-The copied `.env` file already contains all property names and the standard host names, ports and paths required by Compose:
+### 3. Prepare local application secrets
 
-```env
-POSTGRES_DB=event-ticketing-platform-db
-POSTGRES_USER=
-POSTGRES_PASSWORD=
+Create the following ignored file inside `sales-api/`:
 
-DB_URL=jdbc:postgresql://event-ticketing-platform-db:5432/event-ticketing-platform-db
-DB_USER=
-DB_PASSWORD=
-
-SERVER_PORT=8080
-
-JWT_SECRET_KEY=
-
-RABBITMQ_DEFAULT_USER=
-RABBITMQ_DEFAULT_PASS=
-RABBITMQ_HOST=event-ticketing-platform-message-broker
-RABBITMQ_NODE_PORT=5672
-RABBITMQ_MANAGEMENT_TCP_PORT=15672
-RABBITMQ_CONFIG_FILE=/config/rabbitmq
+```text
+sales-api/local.secrets.properties
 ```
 
-Only the empty values must be filled in:
+Example structure:
 
-- `POSTGRES_USER`,
-- `POSTGRES_PASSWORD`,
-- `DB_USER`,
-- `DB_PASSWORD`,
-- `JWT_SECRET_KEY`,
-- `RABBITMQ_DEFAULT_USER`,
-- `RABBITMQ_DEFAULT_PASS`.
-
-For the standard local setup used by this project, PostgreSQL and RabbitMQ can be initialized with:
-
-```env
-POSTGRES_USER=admin
-POSTGRES_PASSWORD=admin
-
-DB_USER=admin
-DB_PASSWORD=admin
-
-RABBITMQ_DEFAULT_USER=admin
-RABBITMQ_DEFAULT_PASS=admin
+```properties
+local.secret.jwt-secret-key=<base64-encoded-local-jwt-secret>
+local.secret.stripe.secret-key=<stripe-test-secret-key>
 ```
 
-`JWT_SECRET_KEY` must contain a valid Base64-encoded signing key.
+The DEV profile imports this file from the filesystem. It is intentionally stored outside `src/main/resources` so local secrets are not packaged into the application JAR or Docker image.
 
-Docker Compose reads the root `.env` file automatically.
+Do not commit this file.
 
-### 3. Start development infrastructure
+### 4. Start PostgreSQL and RabbitMQ for development
+
+From the repository root:
 
 ```bash
 docker compose --profile dev up -d
 ```
 
-The `dev` Compose profile starts:
+This starts PostgreSQL and RabbitMQ only. The Sales API itself remains outside Docker for faster local development.
 
-- PostgreSQL,
-- RabbitMQ with the management plugin.
+Default local endpoints:
 
-The Sales API is not started by this profile.
+| Service | Address |
+|---|---|
+| PostgreSQL | `localhost:5432` |
+| RabbitMQ AMQP | `localhost:5672` |
+| RabbitMQ Management UI | `http://localhost:15672` |
 
-The Spring `dev` profile connects to:
-
-- PostgreSQL at `localhost:5432` using the database `event-ticketing-platform-db` and credentials `admin` / `admin`,
-- RabbitMQ at `localhost:5672`, using `admin` / `admin` unless these credentials are overridden with environment variables.
-
-Because PostgreSQL is initialized from `.env`, the standard `dev` setup requires:
-
-```env
-POSTGRES_DB=event-ticketing-platform-db
-POSTGRES_USER=admin
-POSTGRES_PASSWORD=admin
-```
-
-### 4. Start the Sales API locally
+### 5. Start the Sales API
 
 ```bash
 cd sales-api
@@ -369,7 +446,7 @@ The `dev` profile seeds local accounts for development purposes only:
 | `USER` | `user@gmail.com` | `User123` |
 | `ADMIN` | `admin@gmail.com` | `Admin123` |
 
-### 5. Stop development infrastructure
+### 6. Stop local infrastructure
 
 From the repository root:
 
@@ -377,123 +454,46 @@ From the repository root:
 docker compose --profile dev down
 ```
 
-Use the `-v` option only when the local PostgreSQL and RabbitMQ volumes should also be removed.
+Use `docker compose --profile dev down -v` only when the local PostgreSQL and RabbitMQ volumes should also be removed.
 
-## Running the containerized application
+## Running the production-style Docker stack
 
-The `prod` Compose profile builds the Sales API image and starts the complete environment:
+The `prod` Compose profile builds the Sales API image and runs the application together with PostgreSQL and RabbitMQ.
+
+Fill the production-oriented values in `.env`, including:
+
+- `DB_URL`, `DB_USER`, `DB_PASSWORD`,
+- `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`,
+- `RABBITMQ_DEFAULT_USER`, `RABBITMQ_DEFAULT_PASS`,
+- `RABBITMQ_HOST`, `RABBITMQ_NODE_PORT`,
+- `JWT_SECRET_KEY`,
+- `STRIPE_SECRET_KEY`,
+- `SERVER_PORT`.
+
+Then run:
 
 ```bash
-docker compose --profile prod up --build
+docker compose --profile prod up --build -d
 ```
 
-This profile starts:
+The Sales API container starts with the `prod` Spring profile and receives runtime configuration through environment variables.
 
-- PostgreSQL,
-- RabbitMQ,
-- the Sales API using the Spring `prod` profile.
-
-The current Compose configuration passes the following values from `.env` to the Sales API:
-
-- `SERVER_PORT`,
-- `DB_URL`,
-- `DB_USER`,
-- `DB_PASSWORD`,
-- `RABBITMQ_HOST`,
-- `RABBITMQ_NODE_PORT`,
-- `RABBITMQ_DEFAULT_USER`,
-- `RABBITMQ_DEFAULT_PASS`,
-- `JWT_SECRET_KEY`.
-
-`SPRING_PROFILES_ACTIVE=prod` is set directly in `compose.yaml`, so it does not need to be added to `.env`.
-
-The Spring `prod` profile requires all of these application properties without development fallbacks:
-
-```text
-DB_URL
-DB_USER
-DB_PASSWORD
-SERVER_PORT
-JWT_SECRET_KEY
-RABBITMQ_HOST
-RABBITMQ_NODE_PORT
-RABBITMQ_DEFAULT_USER
-RABBITMQ_DEFAULT_PASS
-```
-
-The remaining `.env` values are used by the infrastructure containers or Compose itself:
-
-- `POSTGRES_DB`, `POSTGRES_USER` and `POSTGRES_PASSWORD` initialize PostgreSQL,
-- `RABBITMQ_MANAGEMENT_TCP_PORT` publishes the RabbitMQ management UI,
-- `RABBITMQ_CONFIG_FILE` points the RabbitMQ container to the mounted configuration file.
-
-For the current container network:
-
-- `DB_URL` must use `event-ticketing-platform-db` as the database host,
-- `RABBITMQ_HOST` must use `event-ticketing-platform-message-broker`,
-- `DB_USER` and `DB_PASSWORD` must match the PostgreSQL user created through `POSTGRES_USER` and `POSTGRES_PASSWORD`,
-- `SERVER_PORT` defines both the Spring Boot server port inside the container and the host port published by the current Compose mapping.
-
-With the values from `.env.example`, the Sales API is available at:
-
-```text
-http://localhost:8080
-```
-
-The RabbitMQ management UI is available at:
-
-```text
-http://localhost:15672
-```
-
-Stop the containerized environment with:
+To stop the stack:
 
 ```bash
 docker compose --profile prod down
 ```
 
-## Running the packaged application outside Docker
-
-The Spring `prod` profile is not tied to Docker. A packaged JAR can be started as a regular JVM process when its required environment variables are supplied externally.
-
-When PostgreSQL and RabbitMQ run in Docker but the Sales API runs directly on the host, use host-accessible addresses instead of Compose service names:
-
-```text
-DB_URL=jdbc:postgresql://localhost:5432/event-ticketing-platform-db
-RABBITMQ_HOST=localhost
-```
-
-The application process requires:
-
-```text
-DB_URL
-DB_USER
-DB_PASSWORD
-SERVER_PORT
-JWT_SECRET_KEY
-RABBITMQ_HOST
-RABBITMQ_NODE_PORT
-RABBITMQ_DEFAULT_USER
-RABBITMQ_DEFAULT_PASS
-```
-
-`POSTGRES_*`, `RABBITMQ_MANAGEMENT_TCP_PORT` and `RABBITMQ_CONFIG_FILE` configure the infrastructure containers and are not required by the standalone Sales API process.
-
-Start the packaged application from `sales-api/target` with:
-
-```bash
-java -jar sales-api.jar --spring.profiles.active=prod
-```
-
 ## Roadmap
 
-1. Stripe integration, including webhook verification and idempotent payment handling.
-2. Fulfillment worker communicating through RabbitMQ after payment confirmation and generating ticket PDFs.
-3. Final production-hardening review, bug fixing and documentation cleanup.
-4. OpenAPI/Swagger documentation (optional, but planned as a presentation improvement).
+1. Stripe webhook verification, event idempotency and final payment/order state transitions.
+2. Fulfillment worker consuming confirmed payments through RabbitMQ and generating tickets.
+3. PDF ticket generation and email delivery.
+4. Final production-hardening review, remaining bug fixes and documentation cleanup.
+5. OpenAPI/Swagger documentation as an optional presentation improvement.
 
 ## Project status and intent
 
 This is an actively developed portfolio project, not a production deployment or a finished commercial ticketing product.
 
-Its purpose is to build and document a realistic backend workflow involving transactions, concurrency, asynchronous messaging, failure handling and containerized application delivery. Planned features are kept separate from implemented functionality so that the repository reflects the actual state of the code.
+Its purpose is to build and document a realistic backend workflow involving transactions, concurrency, asynchronous messaging, external payment integration and failure handling. Planned features are kept separate from implemented functionality so that the repository reflects the actual state of the code.

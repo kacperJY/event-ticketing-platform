@@ -15,12 +15,40 @@ import pl.kacper.sales_api.common.exception.DuplicateDbRecordException;
 import pl.kacper.sales_api.common.exception.DuplicateUsernameException;
 import pl.kacper.sales_api.common.exception.NoSuchDbRecordException;
 import pl.kacper.sales_api.common.exception.NoSuchQuantityException;
+import pl.kacper.sales_api.common.exception.paymentException.InitializationPaymentException;
+import pl.kacper.sales_api.common.exception.paymentException.ExternalPaymentServiceException;
+import pl.kacper.sales_api.common.exception.paymentException.PaymentInconsistentStateException;
 
 import java.util.List;
 
 @RestControllerAdvice()
 @Order(Ordered.HIGHEST_PRECEDENCE)
 public class GlobalExceptionHandler {
+
+    @ExceptionHandler(InitializationPaymentException.class)
+    public ProblemDetail handleInitializationPaymentException(Throwable throwable) {
+        return ProblemDetail.forStatusAndDetail(
+                HttpStatus.CONFLICT,
+                throwable.getMessage()
+        );
+    }
+
+    @ExceptionHandler(ExternalPaymentServiceException.class)
+    public ProblemDetail handleExternalPaymentServiceException(Throwable throwable) {
+        return ProblemDetail.forStatusAndDetail(
+                HttpStatus.SERVICE_UNAVAILABLE,
+                throwable.getMessage()
+        );
+    }
+
+    @ExceptionHandler(PaymentInconsistentStateException.class)
+    public ProblemDetail handlePaymentInconsistentStateException(Throwable throwable) {
+        return ProblemDetail.forStatusAndDetail(
+                HttpStatus.INTERNAL_SERVER_ERROR,
+                throwable.getMessage()
+        );
+    }
+
 
     @ExceptionHandler(DuplicateUsernameException.class)
     public ProblemDetail handleDuplicateUsernameException(Throwable throwable) {
@@ -47,7 +75,7 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler({DuplicateDbRecordException.class})
-    public ProblemDetail handleIllegalStateException(Throwable throwable){
+    public ProblemDetail handleDuplicateDbRecordException(Throwable throwable) {
         ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
                 HttpStatus.BAD_REQUEST,
                 throwable.getMessage()
@@ -71,7 +99,7 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler({NoSuchDbRecordException.class})
-    public ProblemDetail handleNoResourceException(Throwable throwable){
+    public ProblemDetail handleNoResourceException(Throwable throwable) {
         ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
                 HttpStatus.NOT_FOUND,
                 throwable.getMessage()

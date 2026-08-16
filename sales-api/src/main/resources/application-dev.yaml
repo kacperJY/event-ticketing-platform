@@ -1,4 +1,6 @@
 spring:
+  config:
+    import: file:./local.secrets.properties
   datasource:
     url: jdbc:postgresql://localhost:5432/event-ticketing-platform-db
     username: admin
@@ -11,9 +13,12 @@ spring:
         generate_statistics: true
 
   rabbitmq:
-    username: ${RABBITMQ_DEFAULT_USER:admin}
-    password: ${RABBITMQ_DEFAULT_PASS:admin}
-    port: ${RABBITMQ_NODE_PORT:5672}
-    host: ${RABBITMQ_HOST:localhost}
+    username: admin
+    password: admin
+    port: 5672
+    host: localhost
 
-jwt-secret-key: gcKshT5geu7UzT0jGpjeMJYwPdW0mAGaCsMH0iWThscYEb22jHvlR2pDt2oaKnOW
+jwt-secret-key: ${local.secret.jwt-secret-key}
+
+stripe:
+  secret-key: ${local.secret.stripe.secret-key}

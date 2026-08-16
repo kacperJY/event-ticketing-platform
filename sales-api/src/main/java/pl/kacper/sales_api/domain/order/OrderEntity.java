@@ -5,9 +5,9 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 import pl.kacper.sales_api.domain.BaseEntity;
-import pl.kacper.sales_api.domain.eventTicket.TicketEntity;
 import pl.kacper.sales_api.domain.user.UserEntity;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -30,29 +30,44 @@ public class OrderEntity extends BaseEntity {
     private UserEntity purchaser;
 
     @OneToMany(fetch = FetchType.LAZY, mappedBy = "order", cascade = CascadeType.PERSIST)
-    private List<TicketEntity> ticketList = new ArrayList<>();
+    private List<OrderItemEntity> orderItemList = new ArrayList<>();
 
+    // PAYMENT_INTENT
     @Setter
-    @Column(unique = true)
-    private String paymentSessionId;
+    @Column(unique = true, nullable = true)
+    private String stripePaymentIntentId;
 
     @Setter
     @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
     private OrderStatus orderStatus;
 
     @Setter
-    private long price;
+    private long totalAmount;
 
+    @Column(length = 3)
+    @Enumerated(EnumType.STRING)
+    private CurrencyType currencyType = CurrencyType.PLN;
 
-    public OrderEntity(UserEntity purchaser, String paymentSessionId, OrderStatus orderStatus, long price) {
-        this.purchaser = purchaser;
-        this.paymentSessionId = paymentSessionId;
-        this.orderStatus = orderStatus;
-        this.price = price;
-    }
+    @Setter
+    @Column(nullable = true)
+    private Instant paymentInitializedAt;
 
-    public void addTicketToOrder(TicketEntity ticketEntity){
-        ticketEntity.setOrder(this);
-        this.ticketList.add(ticketEntity);
+    @Setter
+    @Column(nullable = true)
+    private Instant paidAt;
+
+    @Setter
+    @Column(nullable = false)
+    private Instant expiresAt;
+
+    @Setter
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
+    private PaymentStatus paymentStatus;
+
+    public void addOrderItem(OrderItemEntity orderItemEntity){
+        orderItemEntity.setOrder(this);
+        this.orderItemList.add(orderItemEntity);
     }
 }

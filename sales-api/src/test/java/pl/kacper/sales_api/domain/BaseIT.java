@@ -42,6 +42,6 @@ public class BaseIT {
 
     @AfterEach
     void cleanDatabase() {
-        JdbcTestUtils.deleteFromTables(jdbcTemplate, "public.tickets", "public.seats", "public.orders", "public.users", "public.events", "public.processed_messages","public.outbox_messages");
+        JdbcTestUtils.deleteFromTables(jdbcTemplate, "public.order_items", "public.seats", "public.orders", "public.users", "public.events", "public.processed_messages","public.outbox_messages");
     }
 }
