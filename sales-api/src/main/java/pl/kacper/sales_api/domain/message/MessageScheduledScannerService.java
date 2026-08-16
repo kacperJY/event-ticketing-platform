@@ -18,7 +18,7 @@ public class MessageScheduledScannerService {
         this.messagePublisher = messagePublisher;
     }
 
-    @Scheduled(fixedRate = 15, timeUnit = TimeUnit.SECONDS)
+    @Scheduled(fixedDelay = 15, timeUnit = TimeUnit.SECONDS)
     public void scanAndSendMessage() {
         messagePublisher.scanAndPublishMessage();
     }

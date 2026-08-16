@@ -11,7 +11,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.CannotAcquireLockException;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.stereotype.Component;
-import pl.kacper.sales_api.common.exception.ConcurrencyClaimMessageException;
+import pl.kacper.sales_api.common.exception.NoSuchDbRecordException;
 import pl.kacper.sales_api.domain.message.property.MessageStatus;
 
 import java.nio.charset.StandardCharsets;
@@ -27,8 +27,8 @@ public class MessagePublisher {
     private final OutboxMessageTransactionService outboxMessageTransactionService;
     private final RabbitTemplate rabbitTemplate;
 
-    @Value("${database.fetch-size}")
-    private int fetchSize;
+    @Value("${database.batch-size}")
+    private int batchSize;
     @Value("${messaging-scheduler.batches-processing-at-once}")
     private int batchesAtOnce;
 
@@ -57,13 +57,13 @@ public class MessagePublisher {
         do {
             stuckEntities = outboxMessageTransactionService.requeueProcessingMessages(
                     Instant.ofEpochMilli(Instant.now().toEpochMilli() - LOCKED_TIMEOUT_DURATION.toMillis()),
-                    fetchSize);
+                    batchSize);
         } while (!stuckEntities.isEmpty());
 
         Collection<OutboxMessageEntity> outboxMessageEntities;
         int batchesCounter = 0;
         do {
-            int reservedPermits = Math.min(semaphore.availablePermits(), fetchSize);
+            int reservedPermits = Math.min(semaphore.availablePermits(), batchSize);
             if (reservedPermits == 0) break; // Terminate loop scanning
             boolean flag = semaphore.tryAcquire(reservedPermits);
             if (flag) {
@@ -109,10 +109,10 @@ public class MessagePublisher {
                         messageId
                 );
                 return;
-            } catch (ConcurrencyClaimMessageException e) {
+            } catch (NoSuchDbRecordException e) {
                 LOGGER.debug("""
-                        Immediate send message[ID={}] has been skipped, because message is already claim by other process  \n
-                        ConcurrencyClaimMessageException: {}
+                        Immediate send message[ID={}] has been skipped, because message does not exists  \n
+                        NoSuchDbRecordException: {}
                         """, messageId, e.getMessage());
                 return;
             } finally {
