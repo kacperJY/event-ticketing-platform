@@ -16,3 +16,6 @@ rabbitmq
 .DS_Store
 Thumbs.db
 *.txt
+
+# locals
+sales-api/local.secrets.properties

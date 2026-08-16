@@ -39,7 +39,6 @@ spring:
 
 database:
   batch-size: 50
-  fetch-size: 50
 
 messaging-scheduler:
   batches-processing-at-once: 3
@@ -60,4 +59,8 @@ rabbitmq:
   exchange:
     main-exchange: "event-ticketing-platform.main-exchange"
     dead-letter-exchange: "event-ticketing-platform.dead-letter-exchange"
-
+stripe:
+  idempotency-key:
+    prefix: "payment-intent:order:"
+order:
+  time-to-expired: 15
