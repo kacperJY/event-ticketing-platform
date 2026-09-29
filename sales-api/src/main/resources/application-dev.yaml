@@ -22,3 +22,4 @@ jwt-secret-key: ${local.secret.jwt-secret-key}
 
 stripe:
   secret-key: ${local.secret.stripe.secret-key}
+  webhook-secret: ${local.stripe.webhook.secret}

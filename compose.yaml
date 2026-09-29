@@ -60,6 +60,7 @@ services:
       - "RABBITMQ_DEFAULT_PASS"
       - "JWT_SECRET_KEY"
       - "STRIPE_SECRET_KEY"
+      - "STRIPE_WEBHOOK_SECRET"
     depends_on:
       event-ticketing-platform-db:
         condition: service_healthy

@@ -34,7 +34,7 @@ public class BaseIT {
     protected MockMvc mockMvc;
 
     static {
-        postgreSQLContainer = new PostgreSQLContainer("postgres:latest");
+        postgreSQLContainer = new PostgreSQLContainer("postgres:17.10");
         postgreSQLContainer.start();
         rabbitMQContainer = new RabbitMQContainer("rabbitmq:4.3.2-management");
         rabbitMQContainer.start();
@@ -42,6 +42,6 @@ public class BaseIT {
 
     @AfterEach
     void cleanDatabase() {
-        JdbcTestUtils.deleteFromTables(jdbcTemplate, "public.order_items", "public.seats", "public.orders", "public.users", "public.events", "public.processed_messages","public.outbox_messages");
+        JdbcTestUtils.deleteFromTables(jdbcTemplate, "public.order_items", "public.seats", "public.orders", "public.users", "public.events", "public.processed_messages","public.outbox_messages","public.stripe_events");
     }
 }

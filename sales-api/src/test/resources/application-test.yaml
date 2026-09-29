@@ -9,6 +9,7 @@ rabbitmq:
 
 stripe:
   secret-key: ""
+  webhook-secret: "development_test_webhook_secret"
 
 database:
   batch-size: 50
