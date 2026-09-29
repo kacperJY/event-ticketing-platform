@@ -17,10 +17,9 @@ import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import pl.kacper.sales_api.common.exception.NoSuchQuantityException;
-import pl.kacper.sales_api.common.exception.paymentException.InitializationPaymentException;
-import pl.kacper.sales_api.common.exception.paymentException.PaymentInconsistentStateException;
-import pl.kacper.sales_api.common.exception.paymentException.PaymentIntentStateMismatchException;
 import pl.kacper.sales_api.common.exception.paymentException.ExternalPaymentServiceException;
+import pl.kacper.sales_api.common.exception.paymentException.InitializationPaymentException;
+import pl.kacper.sales_api.common.exception.paymentException.PaymentIntentStateMismatchException;
 import pl.kacper.sales_api.domain.event.EventEntity;
 import pl.kacper.sales_api.domain.event.EventRepository;
 import pl.kacper.sales_api.domain.order.dto.OrderPaymentResponseDto;
@@ -49,7 +48,7 @@ public class OrderService {
     private final StripeClient stripeClient;
     private final OrderTransactionService orderTransactionService;
 
-    @Value("${stripe.idempotency-key.prefix}")
+    @Value("${stripe.idempotency-key.payment-prefix}")
     private String idempotencyKeyPrefix;
 
     @Value("${order.time-to-expired}")
@@ -58,8 +57,7 @@ public class OrderService {
     private static final int MAX_RETRIES = 5;
 
     @Autowired
-    public OrderService(SeatRepository seatRepository, OrderRepository orderRepository, EventRepository eventRepository,
-                        UserRepository userRepository, StripeClient stripeClient, OrderTransactionService orderTransactionService) {
+    public OrderService(SeatRepository seatRepository, OrderRepository orderRepository, EventRepository eventRepository, UserRepository userRepository, StripeClient stripeClient, OrderTransactionService orderTransactionService) {
         this.seatRepository = seatRepository;
         this.orderRepository = orderRepository;
         this.eventRepository = eventRepository;
@@ -75,19 +73,15 @@ public class OrderService {
         List<TicketRequestDto> tickets = new ArrayList<>(ticketsDto);
         tickets.sort(Comparator.comparing(TicketRequestDto::eventId));
 
-        List<Long> eventIdList = tickets.stream()
-                .map(TicketRequestDto::eventId)
-                .toList();
+        List<Long> eventIdList = tickets.stream().map(TicketRequestDto::eventId).toList();
 
         long existedEvents = eventRepository.countByEventIdIn(eventIdList);
 
         // Safe-check if all event exists - to prevent fetching SeatEntity record for no reason
         if (existedEvents != eventIdList.size())
-            throw new IllegalArgumentException("Some of the event IDs are incorrect or passed duplicate event ID. Provided %d, but found %d."
-                    .formatted(eventIdList.size(), existedEvents));
+            throw new IllegalArgumentException("Some of the event IDs are incorrect or passed duplicate event ID. Provided %d, but found %d.".formatted(eventIdList.size(), existedEvents));
 
-        UserEntity userEntity = userRepository.findUserByEmail(userDetails.getUsername()).
-                orElseThrow(() -> new UsernameNotFoundException("Invalid username. Cannot find user with such username: " + userDetails.getUsername()));
+        UserEntity userEntity = userRepository.findUserByEmail(userDetails.getUsername()).orElseThrow(() -> new UsernameNotFoundException("Invalid username. Cannot find user with such username: " + userDetails.getUsername()));
 
 
         Map<Long, List<SeatEntity>> seatEntitiesByEventId = mapAvailablePlacesWithEventEntities(tickets);
@@ -112,19 +106,12 @@ public class OrderService {
 
         orderRepository.save(orderEntity);
 
-        return new OrderResponseDto(
-                orderEntity.getOrderId(),
-                orderEntity.getPurchaser().getEmail(),
-                fullPrice,
-                orderEntity.getCreatedAt(),
-                orderEntity.getOrderStatus()
-        );
+        return new OrderResponseDto(orderEntity.getOrderId(), orderEntity.getPurchaser().getEmail(), fullPrice, orderEntity.getCreatedAt(), orderEntity.getOrderStatus());
     }
 
     private OrderItemEntity createOrderItemEntity(long price, SeatEntity seat, EventEntity eventEntity) {
         return new OrderItemEntity(price, seat, eventEntity);
     }
-
 
     private Map<Long, List<SeatEntity>> mapAvailablePlacesWithEventEntities(List<TicketRequestDto> tickets) {
         Map<Long, List<SeatEntity>> seatEntityListOfEventMap = new HashMap<>();
@@ -137,8 +124,7 @@ public class OrderService {
             List<SeatEntity> seatEntityList = seatRepository.findSeatByEventIdWithLocking(eventId, SeatStatus.AVAILABLE, pageRequest);
 
             if (seatEntityList.size() != quantity)
-                throw new NoSuchQuantityException("There are not enough available tickets for event ID=%d. Expected %d but available %d. Order will not be completed"
-                        .formatted(eventId, quantity, seatEntityList.size()));
+                throw new NoSuchQuantityException("There are not enough available tickets for event ID=%d. Expected %d but available %d. Order will not be completed".formatted(eventId, quantity, seatEntityList.size()));
 
             seatEntityListOfEventMap.put(eventId, seatEntityList);
 
@@ -154,22 +140,26 @@ public class OrderService {
         try {
             orderEntity = orderTransactionService.validateOrderBefore(orderId, userDetails); // TX
         } catch (PaymentIntentStateMismatchException e) {
-            throw new PaymentInconsistentStateException("Order[orderId=%s] Payment could not be initialized due to an internal processing error.".formatted(orderId), e); // TEMPORARY SOLUTION
+            LOGGER.error(e.getMessage(), e);
+            throw new InitializationPaymentException("Order[orderId=%s] Payment could not be initialized due to an internal processing error.".formatted(orderId), e); // TEMPORARY SOLUTION
         }
 
         // IF PaymentIntent already exists - RETRIEVE
         if (orderEntity.getPaymentStatus() == PaymentStatus.PENDING && orderEntity.getStripePaymentIntentId() != null) {
             try {
                 PaymentIntent retrieve = stripeClient.v1().paymentIntents().retrieve(orderEntity.getStripePaymentIntentId());
-                String status = retrieve.getStatus();
+                String statusRaw = retrieve.getStatus();
 
-                // TEMPORARY CHECKS
-                switch (status) {
-                    case "succeeded" ->
-                            throw new InitializationPaymentException("Could not retrieve payment because it has already succeeded");
-                    case "canceled" ->
-                            throw new InitializationPaymentException("Could not retrieve payment because it has already canceled");
-                }
+                Optional<StripeStatus> stripeStatus = StripeStatus.fromString(statusRaw);
+
+                stripeStatus.ifPresent(status -> {
+                    switch (status) {
+                        case SUCCEED ->
+                                throw new InitializationPaymentException("Could not retrieve existed payment because it has already succeeded");
+                        case CANCELED ->
+                                throw new InitializationPaymentException("Could not retrieve existed payment because it has already canceled");
+                    }
+                });
 
                 orderTransactionService.validateOrderAfterRetrieve(orderId); // TX
 
@@ -212,10 +202,11 @@ public class OrderService {
 
                 LOGGER.error("""
                         Initializing payment
+                        OrderId: {}
                         Error code: {}
                         Status code: {}
                         Message: {}
-                        """, e.getCode(), e.getStatusCode(), e.getMessage());
+                        """, orderEntity.getOrderId(), e.getCode(), e.getStatusCode(), e.getMessage());
                 throw new ExternalPaymentServiceException("Could not initialize payment", e); // FOR FUTURE DEVELOP
             }
         }
@@ -233,35 +224,44 @@ public class OrderService {
             orderTransactionService.tryUpdateOrderEntityAfterPaymentInitialization(orderId, createdPaymentIntentId, Instant.now()); // TX
 
         } catch (CannotAcquireLockException e) {
-            LOGGER.debug(
-                    "Could not update Order[orderId={}] after create payment-intent, because Order is claimed by other process",
-                    orderId, e
-            );
+            LOGGER.debug("Could not update Order[orderId={}] after create payment-intent, because Order is claimed by other process", orderId, e);
             throw new InitializationPaymentException("Order[orderId=%s] payment could not be initialized at this moment, because order is currently processed".formatted(orderId), e);
         } catch (PaymentIntentStateMismatchException ex) {
-            throw new PaymentInconsistentStateException("Order[orderId=%s] Payment could not be initialized due to an internal processing error.".formatted(orderId), ex); // TEMPORARY SOLUTION
+            LOGGER.error(ex.getMessage(), ex);
+            throw new InitializationPaymentException("Order[orderId=%s] Payment could not be initialized due to an internal processing error.".formatted(orderId), ex); // TEMPORARY SOLUTION
         }
 
         return new OrderPaymentResponseDto(createdPaymentIntentId, clientSecret, status);
     }
 
     private PaymentIntent createPaymentIntent(OrderEntity orderEntity, String idempotencyKey) throws StripeException {
-        PaymentIntentCreateParams paymentIntentCreateParams =
-                PaymentIntentCreateParams.builder()
-                        .setAmount(orderEntity.getTotalAmount())
-                        .setCurrency(orderEntity.getCurrencyType().getValue())
-                        .putMetadata("orderId", orderEntity.getOrderId().toString())
-                        .setAutomaticPaymentMethods(
-                                PaymentIntentCreateParams.AutomaticPaymentMethods.builder()
-                                        .setEnabled(true)
-                                        .build()
-                        )
-                        .build();
-        RequestOptions requestOptions =
-                RequestOptions.builder()
-                        .setIdempotencyKey(idempotencyKey)
-                        .build();
+        PaymentIntentCreateParams paymentIntentCreateParams = PaymentIntentCreateParams.
+                builder()
+                .setAmount(orderEntity.getTotalAmount())
+                .setCurrency(orderEntity.getCurrencyType().getValue())
+                .putMetadata("orderId", orderEntity.getOrderId().toString())
+                .setAutomaticPaymentMethods(PaymentIntentCreateParams.AutomaticPaymentMethods.builder().setEnabled(true).build()).
+                build();
+        RequestOptions requestOptions = RequestOptions.builder().setIdempotencyKey(idempotencyKey).build();
 
         return stripeClient.v1().paymentIntents().create(paymentIntentCreateParams, requestOptions);
+    }
+
+    private enum StripeStatus {
+
+        SUCCEED("succeeded"), CANCELED("canceled");
+
+        private final String value;
+
+        private StripeStatus(String value) {
+            this.value = value;
+        }
+
+        static Optional<StripeStatus> fromString(String source) {
+            for (StripeStatus stripeStatus : StripeStatus.values()) {
+                if (stripeStatus.value.equals(source)) return Optional.of(stripeStatus);
+            }
+            return Optional.empty();
+        }
     }
 }

@@ -1,6 +1,7 @@
 package pl.kacper.sales_api.common.exceptionHandler;
 
 import io.jsonwebtoken.ExpiredJwtException;
+import jakarta.transaction.NotSupportedException;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpStatus;
@@ -11,13 +12,11 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import pl.kacper.sales_api.common.dto.InvalidParamDto;
-import pl.kacper.sales_api.common.exception.DuplicateDbRecordException;
-import pl.kacper.sales_api.common.exception.DuplicateUsernameException;
-import pl.kacper.sales_api.common.exception.NoSuchDbRecordException;
-import pl.kacper.sales_api.common.exception.NoSuchQuantityException;
+import pl.kacper.sales_api.common.exception.*;
 import pl.kacper.sales_api.common.exception.paymentException.InitializationPaymentException;
 import pl.kacper.sales_api.common.exception.paymentException.ExternalPaymentServiceException;
-import pl.kacper.sales_api.common.exception.paymentException.PaymentInconsistentStateException;
+import pl.kacper.sales_api.common.exception.paymentException.PaymentProcessingException;
+import pl.kacper.sales_api.common.exception.stripe.StripeWebhookException;
 
 import java.util.List;
 
@@ -33,6 +32,14 @@ public class GlobalExceptionHandler {
         );
     }
 
+    @ExceptionHandler(NotSupportedException.class)
+    public ProblemDetail handleNotSupportedException(Throwable throwable){
+        return ProblemDetail.forStatusAndDetail(
+                HttpStatus.INTERNAL_SERVER_ERROR,
+                throwable.getMessage()
+        );
+    }
+
     @ExceptionHandler(ExternalPaymentServiceException.class)
     public ProblemDetail handleExternalPaymentServiceException(Throwable throwable) {
         return ProblemDetail.forStatusAndDetail(
@@ -41,10 +48,18 @@ public class GlobalExceptionHandler {
         );
     }
 
-    @ExceptionHandler(PaymentInconsistentStateException.class)
-    public ProblemDetail handlePaymentInconsistentStateException(Throwable throwable) {
+    @ExceptionHandler(PaymentProcessingException.class)
+    public ProblemDetail handlePaymentProcessingException(Throwable throwable) {
         return ProblemDetail.forStatusAndDetail(
                 HttpStatus.INTERNAL_SERVER_ERROR,
+                throwable.getMessage()
+        );
+    }
+
+    @ExceptionHandler(StripeWebhookException.class)
+    public ProblemDetail handleStripeWebhookException(Throwable throwable) {
+        return ProblemDetail.forStatusAndDetail(
+                HttpStatus.BAD_REQUEST,
                 throwable.getMessage()
         );
     }
@@ -111,7 +126,7 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(ExpiredJwtException.class)
-    public ProblemDetail handleExpiredJwtException(Throwable throwable) {
+    public ProblemDetail handleExpiredJwtException() {
         ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
                 HttpStatus.FORBIDDEN,
                 "Your session has expired. Try to login again to get access"

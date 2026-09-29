@@ -61,6 +61,8 @@ rabbitmq:
     dead-letter-exchange: "event-ticketing-platform.dead-letter-exchange"
 stripe:
   idempotency-key:
-    prefix: "payment-intent:order:"
+    payment-prefix: "payment-intent:order:"
+    refund-prefix: "refund:order:"
+
 order:
-  time-to-expired: 15
+  time-to-expired: 10

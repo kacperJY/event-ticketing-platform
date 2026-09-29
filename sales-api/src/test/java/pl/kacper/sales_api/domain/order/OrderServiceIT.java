@@ -34,11 +34,11 @@ public class OrderServiceIT extends BaseIT {
     private final SeatRepository seatRepository;
     private final OrderTransactionService orderTransactionService;
     private final TransactionTestUtil transactionTestUtil;
-    private final OrderExpirationCleaner orderExpirationCleaner;
+    private final OrderLifecycleService orderLifecycleService;
 
     @Autowired
     public OrderServiceIT(OrderService orderService, UserRepository userRepository, OrderRepository orderRepository, SeatRepository seatRepository,
-                          OrderTransactionService orderTransactionService, TransactionTestUtil transactionTestUtil, OrderExpirationCleaner orderExpirationCleaner) {
+                          OrderTransactionService orderTransactionService, TransactionTestUtil transactionTestUtil, OrderLifecycleService orderLifecycleService) {
         super();
         this.orderService = orderService;
         this.userRepository = userRepository;
@@ -46,7 +46,7 @@ public class OrderServiceIT extends BaseIT {
         this.seatRepository = seatRepository;
         this.orderTransactionService = orderTransactionService;
         this.transactionTestUtil = transactionTestUtil;
-        this.orderExpirationCleaner = orderExpirationCleaner;
+        this.orderLifecycleService = orderLifecycleService;
     }
 
     @Test
@@ -352,7 +352,7 @@ public class OrderServiceIT extends BaseIT {
                     acquire.countDown();
                     boolean await = acquire.await(5, TimeUnit.SECONDS);
                     if (!await) throw new TimeoutException();
-                    orderExpirationCleaner.scanAndCleanExpiredOrders(); // BATCH 50 ORDERS - defined in [TEST PROPERTIES]
+                    orderLifecycleService.scanAndCleanExpiredOrders(); // BATCH 50 ORDERS - defined in [TEST PROPERTIES]
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                     Assertions.fail("Test OrderTransactionService Thread has been interrupted");
