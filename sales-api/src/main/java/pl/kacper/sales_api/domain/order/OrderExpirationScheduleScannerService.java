@@ -10,15 +10,14 @@ import java.util.concurrent.TimeUnit;
 @Profile("!test")
 public class OrderExpirationScheduleScannerService {
 
-    private final OrderExpirationCleaner orderExpirationCleaner;
+    private final OrderLifecycleService orderLifecycleService;
 
-    public OrderExpirationScheduleScannerService(OrderExpirationCleaner orderExpirationCleaner) {
-        this.orderExpirationCleaner = orderExpirationCleaner;
+    public OrderExpirationScheduleScannerService(OrderLifecycleService orderLifecycleService) {
+        this.orderLifecycleService = orderLifecycleService;
     }
 
     @Scheduled(fixedDelay = 15, timeUnit = TimeUnit.SECONDS)
     public void scanExpiredOrdersAndUpdate() {
-
-        this.orderExpirationCleaner.scanAndCleanExpiredOrders();
+        this.orderLifecycleService.scanAndCleanExpiredOrders();
     }
 }

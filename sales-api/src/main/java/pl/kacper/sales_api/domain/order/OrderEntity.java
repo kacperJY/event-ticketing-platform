@@ -62,11 +62,23 @@ public class OrderEntity extends BaseEntity {
     private Instant expiresAt;
 
     @Setter
+    @Column(unique = true, nullable = true)
+    private String stripeRefundId;
+
+    @Setter
+    @Column(nullable = true)
+    private Instant refundRequestedAt;
+
+    @Setter
+    @Column(nullable = true)
+    private Instant refundedAt;
+
+    @Setter
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private PaymentStatus paymentStatus;
 
-    public void addOrderItem(OrderItemEntity orderItemEntity){
+    public void addOrderItem(OrderItemEntity orderItemEntity) {
         orderItemEntity.setOrder(this);
         this.orderItemList.add(orderItemEntity);
     }

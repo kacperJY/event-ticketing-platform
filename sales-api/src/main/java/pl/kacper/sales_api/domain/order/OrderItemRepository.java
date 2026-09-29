@@ -12,5 +12,5 @@ import java.util.UUID;
 public interface OrderItemRepository extends ListCrudRepository<OrderItemEntity, Long> {
 
     @Query("select oie.seat.seatId FROM OrderItemEntity oie WHERE oie.order.orderId IN (:orderIdList)")
-    List<Long> findSeatIdsByOrderId(@Param("orderIdList") List<UUID> orderIdList);
+    List<Long> findSeatIdsByOrderIds(@Param("orderIdList") List<UUID> orderIdList);
 }

@@ -15,24 +15,24 @@ import java.util.Optional;
 import java.util.UUID;
 
 @Service
-public class OrderExpirationTransactionService {
+public class OrderLifecycleTransactionService {
 
     private final OrderRepository orderRepository;
     private final OrderItemRepository orderItemRepository;
     private final SeatRepository seatRepository;
 
     @Autowired
-    public OrderExpirationTransactionService(OrderRepository orderRepository, OrderItemRepository orderItemRepository, SeatRepository seatRepository) {
+    public OrderLifecycleTransactionService(OrderRepository orderRepository, OrderItemRepository orderItemRepository, SeatRepository seatRepository) {
         this.orderRepository = orderRepository;
         this.orderItemRepository = orderItemRepository;
         this.seatRepository = seatRepository;
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public int findAndUpdateExpiredOrders(Pageable pageable) {
+    int findAndUpdateExpiredOrders(Pageable pageable) {
         // Fetch with OrderItemList
         // Lock rows in table 'orders'
-        List<OrderEntity> expiredOrders = orderRepository.findOrderByOrderStatusAndExpiresAtWithLockingSkipLocked(Instant.now(), OrderStatus.PENDING, pageable);
+        List<OrderEntity> expiredOrders = orderRepository.findOrdersByOrderStatusAndExpiresAtWithLockingSkipLocked(Instant.now(), OrderStatus.PENDING, pageable);
 
         if (expiredOrders.isEmpty()) return 0;
 
@@ -40,7 +40,7 @@ public class OrderExpirationTransactionService {
                 .map(OrderEntity::getOrderId)
                 .toList();
 
-        List<Long> seatIdsByOrderItemId = orderItemRepository.findSeatIdsByOrderId(orderIdList);
+        List<Long> seatIdsByOrderItemId = orderItemRepository.findSeatIdsByOrderIds(orderIdList);
 
         List<SeatEntity> seatEntityList = seatRepository.findAllById(seatIdsByOrderItemId);
 
@@ -56,11 +56,11 @@ public class OrderExpirationTransactionService {
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public void expireOrderIfEligible(UUID orderId) {
-        Optional<OrderEntity> expiredOrderEntityOptional = orderRepository.findOrderByIdAndStatusWithLockingNoWait(orderId, Instant.now(), OrderStatus.PENDING);
+    void expireOrderIfEligible(UUID orderId) {
+        Optional<OrderEntity> expiredOrderEntityOptional = orderRepository.findSingleOrderByIdAndStatusAndExpiredAtWithLockingNoWait(orderId, Instant.now(), OrderStatus.PENDING);
 
         expiredOrderEntityOptional.ifPresent((expiredOrderEntity) -> {
-            List<Long> seatIds = orderItemRepository.findSeatIdsByOrderId(List.of(expiredOrderEntity.getOrderId()));
+            List<Long> seatIds = orderItemRepository.findSeatIdsByOrderIds(List.of(expiredOrderEntity.getOrderId()));
 
             List<SeatEntity> seatEntityList = seatRepository.findAllById(seatIds);
 
@@ -71,4 +71,23 @@ public class OrderExpirationTransactionService {
         });
     }
 
+    private void cleanOrderSeatsWhen(UUID orderId, SeatStatus seatStatus) {
+
+        List<Long> seatIds = orderItemRepository.findSeatIdsByOrderIds(List.of(orderId));
+
+        List<SeatEntity> seatEntityList = seatRepository.findAllById(seatIds);
+
+        for (SeatEntity seatEntity : seatEntityList)
+            seatEntity.setSeatStatus(seatStatus);
+    }
+
+    @Transactional(propagation = Propagation.MANDATORY)
+    void cleanOrderSeatsWhenCanceled(UUID orderId) {
+        cleanOrderSeatsWhen(orderId, SeatStatus.AVAILABLE);
+    }
+
+    @Transactional(propagation = Propagation.MANDATORY)
+    void cleanOrderSeatsWhenCompleted(UUID orderId) {
+        cleanOrderSeatsWhen(orderId, SeatStatus.SOLD);
+    }
 }

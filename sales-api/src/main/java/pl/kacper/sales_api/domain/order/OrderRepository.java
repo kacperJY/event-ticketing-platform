@@ -27,14 +27,14 @@ public interface OrderRepository extends ListCrudRepository<OrderEntity, UUID> {
             @QueryHint(name = "jakarta.persistence.lock.timeout", value = "-2")
     })
     @Query("select order from OrderEntity order WHERE order.expiresAt < :currentTime AND order.orderStatus = :currentOrderStatus")
-    List<OrderEntity> findOrderByOrderStatusAndExpiresAtWithLockingSkipLocked(@Param("currentTime") Instant currentTime, @Param("currentOrderStatus") OrderStatus currentOrderStatus, Pageable pageable);
+    List<OrderEntity> findOrdersByOrderStatusAndExpiresAtWithLockingSkipLocked(@Param("currentTime") Instant currentTime, @Param("currentOrderStatus") OrderStatus currentOrderStatus, Pageable pageable);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @QueryHints({
             @QueryHint(name = "jakarta.persistence.lock.timeout", value = "0")
     })
     @Query("select order from OrderEntity order WHERE order.orderId = :orderId AND order.orderStatus = :currentOrderStatus AND order.expiresAt < :currentTime")
-    Optional<OrderEntity> findOrderByIdAndStatusWithLockingNoWait(@Param("orderId") UUID orderId, @Param("currentTime") Instant currentTime, @Param("currentOrderStatus") OrderStatus currentOrderStatus);
+    Optional<OrderEntity> findSingleOrderByIdAndStatusAndExpiredAtWithLockingNoWait(@Param("orderId") UUID orderId, @Param("currentTime") Instant currentTime, @Param("currentOrderStatus") OrderStatus currentOrderStatus);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @QueryHints({
@@ -42,4 +42,21 @@ public interface OrderRepository extends ListCrudRepository<OrderEntity, UUID> {
     })
     @Query("select order from OrderEntity order WHERE order.orderId = :orderId")
     Optional<OrderEntity> findByOrderIdWithLockingNoWait(@Param("orderId") UUID orderId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @QueryHints(
+            {
+                    @QueryHint(name = "jakarta.persistence.lock.timeout", value = "-2")
+            }
+    )
+    @Query("""
+            select orderEntity from OrderEntity orderEntity
+                        where orderEntity.orderStatus=:orderStatus
+                                    AND orderEntity.paymentStatus=:paymentStatus
+                                                AND orderEntity.stripePaymentIntentId is not null
+                                                            AND orderEntity.stripeRefundId is null
+                                                                        AND orderEntity.refundedAt is null
+                                                                                    AND orderEntity.refundRequestedAt is null
+            """)
+    List<OrderEntity> findOrderRefundCandidateWithLockingSkipLocked(@Param("orderStatus") OrderStatus orderStatus, @Param("paymentStatus") PaymentStatus paymentStatus, Pageable pageable);
 }

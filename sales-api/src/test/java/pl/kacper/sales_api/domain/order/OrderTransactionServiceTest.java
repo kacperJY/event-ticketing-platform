@@ -31,7 +31,7 @@ public class OrderTransactionServiceTest {
     private OrderRepository orderRepository;
 
     @Mock
-    private OrderExpirationCleaner orderExpirationCleaner;
+    private OrderLifecycleService orderLifecycleService;
 
     @InjectMocks
     private OrderTransactionService orderTransactionService;
@@ -43,7 +43,7 @@ public class OrderTransactionServiceTest {
     void shouldValidateOrderBeforeTranslateConcurrencyExceptionToPaymentException() {
         UUID orderId = UUID.randomUUID();
 
-        Mockito.doThrow(ConcurrencyClaimException.class).when(orderExpirationCleaner).checkIfOrderExpiresTimePastAndClean(orderId);
+        Mockito.doThrow(ConcurrencyClaimException.class).when(orderLifecycleService).checkIfOrderExpiredAndClean(orderId);
 
         Assertions.assertThatThrownBy(() -> orderTransactionService.validateOrderBefore(orderId, null))
                 .isInstanceOf(InitializationPaymentException.class);
@@ -67,7 +67,7 @@ public class OrderTransactionServiceTest {
     void shouldValidateOrderAfterRetrieveTranslateConcurrencyExceptionToPaymentException() {
         UUID orderId = UUID.randomUUID();
 
-        Mockito.doThrow(ConcurrencyClaimException.class).when(orderExpirationCleaner).checkIfOrderExpiresTimePastAndClean(orderId);
+        Mockito.doThrow(ConcurrencyClaimException.class).when(orderLifecycleService).checkIfOrderExpiredAndClean(orderId);
 
         Assertions.assertThatThrownBy(() -> orderTransactionService.validateOrderAfterRetrieve(orderId))
                 .isInstanceOf(InitializationPaymentException.class);
@@ -93,7 +93,7 @@ public class OrderTransactionServiceTest {
         String paymentIntentId = "123";
         Instant now = Instant.now();
 
-        Mockito.doThrow(ConcurrencyClaimException.class).when(orderExpirationCleaner).checkIfOrderExpiresTimePastAndClean(orderId);
+        Mockito.doThrow(ConcurrencyClaimException.class).when(orderLifecycleService).checkIfOrderExpiredAndClean(orderId);
 
         Assertions.assertThatThrownBy(() -> orderTransactionService.tryUpdateOrderEntityAfterPaymentInitialization(orderId, paymentIntentId, now))
                 .isInstanceOf(InitializationPaymentException.class);
