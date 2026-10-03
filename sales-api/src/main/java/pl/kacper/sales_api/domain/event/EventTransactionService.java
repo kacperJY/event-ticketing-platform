@@ -10,7 +10,7 @@ import pl.kacper.sales_api.common.utils.PriceValueCalculator;
 import pl.kacper.sales_api.domain.event.dto.CreateEventRequestDto;
 import pl.kacper.sales_api.domain.message.OutboxMessageEntity;
 import pl.kacper.sales_api.domain.message.OutboxMessageRepository;
-import pl.kacper.sales_api.domain.message.dto.event.CreateEventMessagePayloadDto;
+import pl.kacper.sales_api.domain.message.dto.message_payload.CreatedEventMessagePayloadDto;
 import pl.kacper.sales_api.domain.message.dto.EntityAndMessageDto;
 import pl.kacper.sales_api.domain.message.property.AggregateType;
 import pl.kacper.sales_api.domain.message.property.MessagePayloadVersion;
@@ -54,13 +54,13 @@ public class EventTransactionService {
 
         eventRepository.save(eventEntity);
 
-        CreateEventMessagePayloadDto createEventMessagePayloadDto = new CreateEventMessagePayloadDto(
+        CreatedEventMessagePayloadDto createdEventMessagePayloadDto = new CreatedEventMessagePayloadDto(
                 eventEntity.getEventId(),
                 PriceValueCalculator.calculateZlotyToPennies(createEventRequestDto.seatPrice()),
                 createEventRequestDto.placesNumber(),
                 createEventRequestDto.name()
         );
-        String payloadJson = objectMapper.writeValueAsString(createEventMessagePayloadDto);
+        String payloadJson = objectMapper.writeValueAsString(createdEventMessagePayloadDto);
         OutboxMessageEntity outboxMessageEntity = new OutboxMessageEntity(
                 payloadJson,
                 MessagePayloadVersion.V1,

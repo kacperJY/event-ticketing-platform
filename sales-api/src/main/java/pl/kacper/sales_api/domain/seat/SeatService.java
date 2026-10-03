@@ -9,7 +9,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import pl.kacper.sales_api.domain.event.EventEntity;
-import pl.kacper.sales_api.domain.message.dto.event.CreateEventMessagePayloadDto;
+import pl.kacper.sales_api.domain.message.dto.message_payload.CreatedEventMessagePayloadDto;
 
 
 @Service
@@ -27,17 +27,17 @@ public class SeatService {
     }
 
     @Transactional(propagation = Propagation.REQUIRED)
-    public void createSeatsByEvent(CreateEventMessagePayloadDto createEventMessagePayloadDto) {
-        int numberOfSeats = createEventMessagePayloadDto.placesNumber();
+    public void createSeatsByEvent(CreatedEventMessagePayloadDto createdEventMessagePayloadDto) {
+        int numberOfSeats = createdEventMessagePayloadDto.placesNumber();
 
         for (int i = 1; i <= numberOfSeats; i++) {
-            EventEntity referenceEvent = entityManager.getReference(EventEntity.class, createEventMessagePayloadDto.eventId());
-            String seatNumber = createEventMessagePayloadDto.seatPrefix() + " - " + i;
+            EventEntity referenceEvent = entityManager.getReference(EventEntity.class, createdEventMessagePayloadDto.eventId());
+            String seatNumber = createdEventMessagePayloadDto.seatPrefix() + " - " + i;
 
             SeatEntity seatEntity = new SeatEntity(
                     referenceEvent,
                     seatNumber,
-                    createEventMessagePayloadDto.pricePerSeat(),
+                    createdEventMessagePayloadDto.pricePerSeat(),
                     SeatStatus.AVAILABLE
             );
             entityManager.persist(seatEntity);
@@ -50,7 +50,7 @@ public class SeatService {
         entityManager.flush();
         entityManager.clear();
 
-        LOGGER.info("Created {} seats for event id: {}", numberOfSeats, createEventMessagePayloadDto.eventId());
+        LOGGER.info("Created {} seats for event id: {}", numberOfSeats, createdEventMessagePayloadDto.eventId());
     }
 
 }

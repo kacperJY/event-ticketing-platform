@@ -31,6 +31,9 @@ public class StripePaymentIntentEventHandlerTransactionServiceTest {
     @Mock
     private PaymentStateValidator paymentStateValidator;
 
+    @Mock
+    private OrderFulfillmentOutboxService orderFulfillmentOutboxService;
+
     @InjectMocks
     private StripePaymentIntentEventHandlerTransactionService stripePaymentIntentEventHandlerTransactionService;
 
@@ -63,7 +66,7 @@ public class StripePaymentIntentEventHandlerTransactionServiceTest {
         StripeEventProcessingResult result =
                 stripePaymentIntentEventHandlerTransactionService.handleSucceed(
                         new StripeEventContext(orderId,
-                                paymentIntentId,StripeWebhookEvent.PI_SUCCEEDED)
+                                paymentIntentId, StripeWebhookEvent.PI_SUCCEEDED)
                 );
 
         Assertions.assertThat(result.state())
@@ -74,6 +77,10 @@ public class StripePaymentIntentEventHandlerTransactionServiceTest {
 
         Assertions.assertThat(orderEntity.getPaymentStatus())
                 .isEqualTo(expectedPaymentStatus);
+
+        // Check create outbox
+        int timesOfInvokeCreateOutbox = initialOrderStatus == OrderStatus.PENDING && initialPaymentStatus == PaymentStatus.PENDING ? 1 : 0;
+        Mockito.verify(orderFulfillmentOutboxService, Mockito.times(timesOfInvokeCreateOutbox)).createFulfillmentOutboxMessage(orderEntity);
     }
 
     static Stream<Arguments> succeedCases() {
@@ -313,7 +320,7 @@ public class StripePaymentIntentEventHandlerTransactionServiceTest {
         StripeEventProcessingResult result =
                 stripePaymentIntentEventHandlerTransactionService.handleCanceled(
                         new StripeEventContext(orderId,
-                                paymentIntentId,StripeWebhookEvent.PI_CANCELED)
+                                paymentIntentId, StripeWebhookEvent.PI_CANCELED)
                 );
 
         Assertions.assertThat(result.state())
@@ -555,7 +562,7 @@ public class StripePaymentIntentEventHandlerTransactionServiceTest {
         StripeEventProcessingResult result =
                 stripePaymentIntentEventHandlerTransactionService.validatePaymentIntentIdForFailedEvent(
                         new StripeEventContext(orderId,
-                                paymentIntentId,StripeWebhookEvent.PI_FAILED)
+                                paymentIntentId, StripeWebhookEvent.PI_FAILED)
                 );
 
         Assertions.assertThat(result.state())
@@ -584,7 +591,7 @@ public class StripePaymentIntentEventHandlerTransactionServiceTest {
         Assertions.assertThatThrownBy(() ->
                         stripePaymentIntentEventHandlerTransactionService.handleSucceed(
                                 new StripeEventContext(orderId,
-                                        "pi_123",StripeWebhookEvent.PI_SUCCEEDED)
+                                        "pi_123", StripeWebhookEvent.PI_SUCCEEDED)
                         ))
                 .isInstanceOf(NoSuchDbRecordException.class);
     }

@@ -31,11 +31,15 @@ public class AMQPConfig {
     private String createEventQueueName;
     @Value("${rabbitmq.sales-api.create-event.dlq}")
     private String createEventDLQ;
+    @Value("${rabbitmq.sales-api.order-completed.queue-name}")
+    private String completedOrderQueueName;
 
     @Value("${rabbitmq.sales-api.create-event.routing-key}")
     private String createEventRoutingKey;
     @Value("${rabbitmq.sales-api.create-event.dlq-routing-key}")
     private String createEventDLQRoutingKey;
+    @Value("${rabbitmq.sales-api.order-completed.routing-key}")
+    private String completedOrderRoutingKey;
 
     @Value("${rabbitmq.consumer.delay}")
     private long delay;
@@ -68,11 +72,26 @@ public class AMQPConfig {
     }
 
     @Bean
+    public Queue completedOrderQueue() {
+        return QueueBuilder
+                .durable(completedOrderQueueName)
+                .build();
+    }
+
+    @Bean
     public Binding createEventBinding() {
         return BindingBuilder
                 .bind(createEventQueue())
                 .to(mainExchange())
                 .with(createEventRoutingKey);
+    }
+
+    @Bean
+    public Binding completedOrderBinding() {
+        return BindingBuilder
+                .bind(completedOrderQueue())
+                .to(mainExchange())
+                .with(completedOrderRoutingKey);
     }
 
     @Bean

@@ -13,7 +13,7 @@ import pl.kacper.sales_api.domain.event.EventEntity;
 import pl.kacper.sales_api.domain.event.EventRepository;
 import pl.kacper.sales_api.domain.event.dto.Address;
 import pl.kacper.sales_api.domain.message.dto.MessageType;
-import pl.kacper.sales_api.domain.message.dto.event.CreateEventMessagePayloadDto;
+import pl.kacper.sales_api.domain.message.dto.message_payload.CreatedEventMessagePayloadDto;
 import pl.kacper.sales_api.domain.message.property.AggregateType;
 import pl.kacper.sales_api.domain.message.property.MessagePayloadVersion;
 import pl.kacper.sales_api.domain.message.property.OperationType;
@@ -63,13 +63,13 @@ class MessageConsumerIT extends BaseIT {
     }
 
     private Message initializeEventCreateTestMessage(EventEntity eventEntity, MessageType messageType) {
-        CreateEventMessagePayloadDto createEventMessagePayloadDto = new CreateEventMessagePayloadDto(
+        CreatedEventMessagePayloadDto createdEventMessagePayloadDto = new CreatedEventMessagePayloadDto(
                 eventEntity.getEventId(),
                 5_000L,
                 eventEntity.getPlacesNumber(),
                 eventEntity.getName()
         );
-        String jsonPayload = objectMapper.writeValueAsString(createEventMessagePayloadDto);
+        String jsonPayload = objectMapper.writeValueAsString(createdEventMessagePayloadDto);
         return buildMessage(jsonPayload, messageType, eventEntity.getEventId());
     }
 
@@ -79,7 +79,7 @@ class MessageConsumerIT extends BaseIT {
         return buildMessage(jsonPayload, messageType, eventEntity.getEventId());
     }
 
-    private Message initializeEventCreateTestMessage(CreateEventMessagePayloadDto payloadDto, MessageType messageType) {
+    private Message initializeEventCreateTestMessage(CreatedEventMessagePayloadDto payloadDto, MessageType messageType) {
         String jsonPayload = objectMapper.writeValueAsString(payloadDto);
         return buildMessage(jsonPayload, messageType, payloadDto.eventId());
     }
@@ -257,7 +257,7 @@ class MessageConsumerIT extends BaseIT {
         eventRepository.save(eventEntity);
         // DETACHED
 
-        Message message = initializeEventCreateTestMessage(eventEntity, new MessageType(AggregateType.RESERVATION, OperationType.DELETE, MessagePayloadVersion.V1));
+        Message message = initializeEventCreateTestMessage(eventEntity, new MessageType(AggregateType.SEAT, OperationType.DELETE, MessagePayloadVersion.V1));
         String messageId = message.getMessageProperties().getMessageId();
 
         CorrelationData correlationData = new CorrelationData(String.valueOf(messageId));
@@ -315,7 +315,7 @@ class MessageConsumerIT extends BaseIT {
         boolean exists = eventRepository.existsById(notExistingEventID);
         Assertions.assertThat(exists).isFalse();
 
-        CreateEventMessagePayloadDto payloadDto = new CreateEventMessagePayloadDto(notExistingEventID, 5_000, 50, "event-test");
+        CreatedEventMessagePayloadDto payloadDto = new CreatedEventMessagePayloadDto(notExistingEventID, 5_000, 50, "event-test");
 
         Message message = initializeEventCreateTestMessage(payloadDto, CREATE_EVENT_MESSAGETYPE);
         String messageId = message.getMessageProperties().getMessageId();

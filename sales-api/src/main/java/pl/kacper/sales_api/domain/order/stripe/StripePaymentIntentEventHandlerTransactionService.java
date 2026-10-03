@@ -16,12 +16,15 @@ public class StripePaymentIntentEventHandlerTransactionService {
     private final OrderRepository orderRepository;
     private final OrderLifecycleService orderLifecycleService;
     private final PaymentStateValidator paymentStateValidator;
+    private final OrderFulfillmentOutboxService orderFulfillmentOutboxService;
 
     @Autowired
-    StripePaymentIntentEventHandlerTransactionService(OrderRepository orderRepository, OrderLifecycleService orderLifecycleService, PaymentStateValidator paymentStateValidator) {
+    StripePaymentIntentEventHandlerTransactionService(OrderRepository orderRepository, OrderLifecycleService orderLifecycleService,
+                                                      PaymentStateValidator paymentStateValidator, OrderFulfillmentOutboxService orderFulfillmentOutboxService) {
         this.orderRepository = orderRepository;
         this.orderLifecycleService = orderLifecycleService;
         this.paymentStateValidator = paymentStateValidator;
+        this.orderFulfillmentOutboxService = orderFulfillmentOutboxService;
     }
 
     StripeEventProcessingResult validatePaymentIntentIdForFailedEvent(StripeEventContext stripeEventContext) {
@@ -56,6 +59,7 @@ public class StripePaymentIntentEventHandlerTransactionService {
                     orderEntity.setPaymentStatus(PaymentStatus.SUCCEEDED);
                     orderEntity.setPaidAt(Instant.now());
                     orderLifecycleService.cleanOrderSeatsForCompleted(orderId);
+                    orderFulfillmentOutboxService.createFulfillmentOutboxMessage(orderEntity);
                 } else
                     return new StripeEventProcessingResult(
                             StripeEventProcessingResult.State.ACKNOWLEDGED_INCONSISTENT,
