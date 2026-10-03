@@ -1,6 +1,6 @@
 # 🎫 Event Ticketing Platform
 
-![Status](https://img.shields.io/badge/status-payment_milestone_complete-orange)
+![Status](https://img.shields.io/badge/status-sales_api_complete-brightgreen)
 ![Java](https://img.shields.io/badge/Java-25-blue)
 ![Spring Boot](https://img.shields.io/badge/Spring_Boot-4.1-brightgreen)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-17-4169E1)
@@ -8,7 +8,7 @@
 
 Backend portfolio project for event management, seat inventory, orders, payments and refunds. The project focuses on concurrency, transaction boundaries, reliable messaging and integration with an external payment provider.
 
-> **Current milestone:** the Sales API implements checkout, order expiration, Stripe PaymentIntent initialization, signed webhooks and automatic refund initiation for payments received after an order has been marked as expired. A separate Sales API integration branch will add reliable publication of successfully paid orders for fulfillment. The worker is currently a scaffold; it will generate tickets and store them in its own database.
+> **Current milestone:** the Sales API implements checkout, order expiration, Stripe PaymentIntent initialization, signed webhooks, automatic refunds for late payments and reliable publication of successfully paid orders for fulfillment. The worker is currently a scaffold; it will consume the fulfillment contract, generate tickets and store them in its own database.
 
 ## Current scope
 
@@ -27,7 +27,7 @@ Backend portfolio project for event management, seat inventory, orders, payments
 | Refund outcomes | `refund.created`, `refund.updated` and `refund.failed` |
 | Automated verification | Unit tests and PostgreSQL/RabbitMQ integration tests |
 | Runtime and CI | Sales API Docker image, Compose profiles and GitHub Actions |
-| Paid-order publication for fulfillment | Planned in a separate Sales API integration branch, using the transactional outbox |
+| Paid-order publication for fulfillment | Transactional outbox with one versioned message per completed order |
 | Fulfillment worker | Spring Boot scaffold only |
 | Ticket ownership and deduplication | Planned in the worker's own database |
 | Ticket generation, PDF and email | Planned |
@@ -47,14 +47,15 @@ Client ──HTTP/JWT──> Sales API
                        |── Stripe API: PaymentIntent create/retrieve, Refund create
                        |<─ Signed Stripe webhooks
                        |
-                       └── RabbitMQ ──> CreateEventMessageConsumer
-                                             └── batch seat generation
+                       └── RabbitMQ
+                             |── CreateEventMessageConsumer → batch seat generation
+                             └── completed-order queue → future Fulfillment Worker
+                                                           └── separate worker database
+                                                                 └── Ticket records + deduplication
 
-Planned, not implemented yet:
-Sales API: successful order transition + fulfillment outbox message in one transaction
-  → outbox publisher with retry → RabbitMQ → Fulfillment Worker
-                                               └── separate worker database
-                                                     └── Ticket records + deduplication
+Successful payment transaction:
+order + seats + Stripe inbox + fulfillment outbox → commit
+  → existing outbox publisher with retry → completed-order queue
 ```
 
 ```text
@@ -104,7 +105,7 @@ Payment:      PENDING → COMPLETED   seats → SOLD
 
 Expiration preserves the payment status. The payment webhook acts on the persisted order state under an order lock: a successful payment for an already `EXPIRED` order requires a refund. The success handler does not independently compare `expiresAt` with the current time.
 
-Tickets are not created at checkout or payment completion yet. This belongs to the planned fulfillment stage.
+Tickets are not created inside the Sales API. A valid payment completion creates a fulfillment request for the future worker.
 
 ### PaymentIntent initialization
 
@@ -147,6 +148,27 @@ Verify signature → parse supported event and orderId metadata
 Duplicate event IDs are no-ops. A missing local PaymentIntent/refund ID during initialization or an order lock conflict rolls back the inbox claim and returns a retryable server error. The same event can be processed after the local transaction succeeds.
 
 Handlers return `APPLIED`, `IDEMPOTENT_NO_OP` or `ACKNOWLEDGED_INCONSISTENT`; all three results commit the inbox entry. Unsupported events and some permanently invalid contracts are acknowledged before processing. Permanent identity/state exceptions are acknowledged after the transaction rolls back. Therefore, `stripe_events` is a processing inbox, not a complete audit log of every incoming request.
+
+### Paid-order fulfillment publication
+
+A `payment_intent.succeeded` event creates a fulfillment request only for the valid local transition from `OrderStatus.PENDING` and `PaymentStatus.PENDING` to `COMPLETED / SUCCEEDED`. The same transaction:
+
+- claims the Stripe event in the inbox,
+- completes the order and marks its seats as sold,
+- saves one `ORDER / PAID / V1` outbox message for the whole order.
+
+The payload contains the order ID, purchaser email, payment completion time and one item per order item. Every item carries a stable order-item ID together with the event name, location, date, category and seat number. The worker therefore will not need read access to the Sales API database.
+
+```text
+PENDING / PENDING + payment_intent.succeeded
+  → transaction: COMPLETED / SUCCEEDED + seats SOLD + Outbox(PENDING)
+  → existing publisher and retry recovery
+  → RabbitMQ completed-order queue
+```
+
+A late successful payment for an `EXPIRED` order enters the refund flow and does not create a fulfillment request. Re-delivery of the same Stripe event is stopped by the transactional inbox. A different success event for an already completed order reaches the existing idempotent no-op transition and does not create another outbox message.
+
+RabbitMQ confirmation proves that the broker accepted the message. It does not prove that the future worker generated or delivered the tickets, so worker processing must remain idempotent.
 
 ### Automatic refunds
 
@@ -192,6 +214,7 @@ refund.failed can also change REFUNDED → REFUND_FAILED and clear refundedAt.
 | Repeated refund creation | Stable idempotency key and parameters; idempotent TX2 |
 | Duplicate AMQP message | Transactional processed marker |
 | Publisher failure | Outbox retries and stale-processing recovery |
+| Order completion versus fulfillment publication | Order transition, Stripe inbox and fulfillment outbox commit together |
 
 Stripe may deliver events out of order and retry failed deliveries. Delivery and idempotency retention are finite; a deterministic key is not an indefinite recovery mechanism. See [Stripe webhooks](https://docs.stripe.com/webhooks) and [idempotent requests](https://docs.stripe.com/api/idempotent_requests).
 
@@ -203,7 +226,8 @@ Known limitations and follow-up work:
 - `requires_action`, manually created refunds and partial/multiple-refund workflows are outside the current application contract.
 - A late failed refund is handled through `refund.failed`; subscribe to all six supported events. `created`/`updated` with `failed` do not themselves reverse local `REFUNDED`.
 - Automated coordinator coverage currently verifies successful TX1 → CREATE → TX2 orchestration. A failed TX2 followed by a coordinator rerun remains a useful additional recovery test.
-- There is no payment-to-fulfillment outbox event, ticket generation or delivery workflow yet. The producer integration will be added in its own Sales API branch; the worker will own Ticket data in a separate database.
+- The Sales API publishes the fulfillment request, but ticket generation, persistence, PDF creation and delivery are not implemented yet. The worker will own Ticket data in a separate database.
+- There is no reconciliation or backfill flow for orders completed before fulfillment publication was introduced.
 
 ## API overview
 
@@ -231,7 +255,7 @@ From `sales-api/`:
 
 Integration tests require a running Docker daemon and start isolated PostgreSQL/RabbitMQ containers. The `test` profile disables scheduled scanners. Stripe API calls are mocked in automated payment/refund orchestration tests; webhook HTTP tests construct signed payloads.
 
-Coverage includes state matrices, inbox commit/rollback, duplicate and concurrent event delivery, missing local IDs and subsequent retry, order locking, refund candidate selection, refund TX2 persistence and lock failure, and successful refund orchestration with request-argument assertions.
+Coverage includes state matrices, inbox commit/rollback, duplicate and concurrent event delivery, missing local IDs and subsequent retry, order locking, refund candidate selection, refund TX2 persistence and lock failure, successful refund orchestration with request-argument assertions, and the atomic successful-payment path that persists a complete fulfillment payload in the outbox.
 
 Testcontainers and Compose both pin PostgreSQL to `postgres:17.10` and RabbitMQ to `rabbitmq:4.3.2-management`.
 
@@ -358,37 +382,37 @@ This setup is a local production-style runtime, not a complete public deployment
 
 ## Database migration policy
 
-Flyway applies migrations and Hibernate validates the resulting schema. V4 adds the Stripe inbox, refund fields and updated payment-status constraint.
+Flyway applies migrations and Hibernate validates the resulting schema. V4 adds the Stripe inbox, refund fields and updated payment-status constraint. V5 aligns the outbox aggregate and operation constraints with the implemented `ORDER / PAID` fulfillment contract.
 
-**V1–V4 are the established migration history after this milestone. Do not edit or replace them.** Future schema or data changes belong in V5 and subsequent migrations. An existing database must have a compatible migration history; the automated suite verifies migration of a fresh database, not every historical development database.
+**V1–V5 are the established migration history after this milestone. Do not edit or replace them.** Future schema or data changes belong in V6 and subsequent migrations. An existing database must have a compatible migration history; the automated suite verifies migration of a fresh database, not every historical development database.
 
-## Next stages: Sales API integration and fulfillment worker
+## Next stages: fulfillment worker
 
-Development will continue in separate, focused work blocks. Payment/refund completion does not yet mean the Sales API's integration work is finished.
+Development will continue in separate, focused work blocks. The Sales API producer boundary is complete: a valid paid-order transition persists the versioned fulfillment contract and the existing publisher delivers it through RabbitMQ. The remaining end-to-end work belongs to the worker.
 
-### 1. Separate Sales API integration branch
+### Starting point: implemented producer boundary
 
-For a fully paid, valid order (`OrderStatus.COMPLETED` and `PaymentStatus.SUCCEEDED`), the Sales API will persist a fulfillment message in its existing transactional outbox. The order transition and the outbox insert must commit together. A late payment for an expired order follows the refund flow and must not request ticket generation.
+For a fully paid, valid order (`OrderStatus.COMPLETED` and `PaymentStatus.SUCCEEDED`), the Sales API persists one fulfillment message in its existing transactional outbox. The order transition, Stripe inbox claim, seat update and outbox insert commit together. A late payment for an expired order follows the refund flow and does not request ticket generation.
 
-The publisher will deliver the outbox message to RabbitMQ using the existing retry and recovery mechanisms. A duplicate payment webhook must not create another fulfillment request. Broker confirmation means the broker accepted the message; it does not mean the worker generated the tickets.
+The publisher delivers the message using the existing retry and stale-processing recovery mechanisms. Duplicate payment delivery does not create another fulfillment request. Broker confirmation means the broker accepted the message; it does not mean the worker generated the tickets.
 
-This branch will define the message contract and version, the required order/item data and stable source identifiers. It will also decide how to handle orders completed before fulfillment publication existed. The integration should not require the worker to read the Sales API's database.
+The `ORDER / PAID / V1` contract contains all data required to generate tickets, including stable order and order-item identifiers. The worker will not require access to the Sales API database. Backfilling orders completed before this producer existed remains a separate recovery concern.
 
-### 2. Worker-owned tickets and idempotency
+### 1. Worker-owned tickets and idempotency
 
 The worker will consume the fulfillment message, generate tickets for the paid order and persist the `Ticket` records in a **separate database owned by the worker**.
 
-The intended design uses persisted Ticket records as the idempotency record for ticket creation. This requires stable source identifiers and database uniqueness, so redelivery of the same logical request cannot generate additional tickets. An order can contain multiple tickets; an order ID alone cannot be a unique identifier for each Ticket. The exact key and transaction boundary will be defined with the message contract.
+The intended design uses persisted Ticket records as the idempotency record for ticket creation. This requires stable source identifiers and database uniqueness, so redelivery of the same logical request cannot generate additional tickets. An order can contain multiple tickets; an order ID alone cannot be a unique identifier for each Ticket. The worker's exact uniqueness key and local transaction boundary will be defined before its implementation.
 
 If all tickets for one message are created in a single local transaction, the committed Ticket set can establish that ticket creation has already completed. A failure must leave no partial set that is mistaken for completed processing, and message acknowledgement must follow the database commit. Any additional message-processing inbox needed for more complex workflows remains a design decision for that stage.
 
 Ticket deduplication covers ticket creation. PDF generation and email delivery will need their own explicit progress, retry and failure behavior; the presence of a Ticket does not prove that delivery succeeded.
 
-### 3. Subsequent work
+### 2. Subsequent work
 
-- Add integration tests for atomic order/outbox persistence, duplicate payment events, broker retry, worker redelivery and recovery after a committed Ticket transaction.
+- Add worker integration tests for broker retry, redelivery and recovery after a committed Ticket transaction.
 - Implement PDF generation and email delivery.
 - Address reconciliation/operator recovery and the known limitations above in separate changes.
 - Add OpenAPI documentation when useful for presenting the project.
 
-This is a learning and portfolio project. The documented implemented scope is a payment/refund milestone; end-to-end ticket fulfillment remains unfinished.
+This is a learning and portfolio project. The documented Sales API scope now includes payment, refund and reliable fulfillment publication; end-to-end ticket generation and delivery remain unfinished.
