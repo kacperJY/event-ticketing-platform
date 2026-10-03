@@ -13,7 +13,7 @@ import pl.kacper.sales_api.domain.message.MessageMetadataResolver;
 import pl.kacper.sales_api.domain.message.ProcessedMessageId;
 import pl.kacper.sales_api.domain.message.ProcessedMessageRepository;
 import pl.kacper.sales_api.domain.message.dto.MessageType;
-import pl.kacper.sales_api.domain.message.dto.event.CreateEventMessagePayloadDto;
+import pl.kacper.sales_api.domain.message.dto.message_payload.CreatedEventMessagePayloadDto;
 import pl.kacper.sales_api.domain.message.property.AggregateType;
 import pl.kacper.sales_api.domain.message.property.MessagePayloadVersion;
 import pl.kacper.sales_api.domain.message.property.OperationType;
@@ -38,7 +38,7 @@ public class CreateEventMessageConsumer  {
 
     private final static Logger LOGGER = LoggerFactory.getLogger(CreateEventMessageConsumer.class);
     private static final MessageType EXPECTED_MESSAGE_TYPE = new MessageType(AggregateType.EVENT, OperationType.CREATE, MessagePayloadVersion.V1);
-    private static final Class<CreateEventMessagePayloadDto> EXPECTED_PAYLOAD_CLASS = CreateEventMessagePayloadDto.class;
+    private static final Class<CreatedEventMessagePayloadDto> EXPECTED_PAYLOAD_CLASS = CreatedEventMessagePayloadDto.class;
 
 
     public CreateEventMessageConsumer(ProcessedMessageRepository processedMessageRepository, ObjectMapper objectMapper, SeatService seatService ) {
@@ -66,9 +66,9 @@ public class CreateEventMessageConsumer  {
         if(processedMessageRepository.existsById(processedMessageId))
             return;
 
-        CreateEventMessagePayloadDto createEventMessagePayloadDto;
+        CreatedEventMessagePayloadDto createdEventMessagePayloadDto;
         try{
-            createEventMessagePayloadDto = objectMapper.readValue(message.getBody(), EXPECTED_PAYLOAD_CLASS);
+            createdEventMessagePayloadDto = objectMapper.readValue(message.getBody(), EXPECTED_PAYLOAD_CLASS);
         } catch (JacksonException e){
             throw new InvalidMessageFormatException("Cannot resolve message's payload from JSON to %s. Probably invalid format JSON.".formatted(EXPECTED_PAYLOAD_CLASS.getSimpleName()));
         }
@@ -77,6 +77,6 @@ public class CreateEventMessageConsumer  {
         if(inserts == 0)
             return;
 
-        seatService.createSeatsByEvent(createEventMessagePayloadDto);
+        seatService.createSeatsByEvent(createdEventMessagePayloadDto);
     }
 }
