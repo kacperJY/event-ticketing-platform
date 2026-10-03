@@ -5,10 +5,17 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.CannotAcquireLockException;
+import org.springframework.data.domain.Sort;
 import org.springframework.test.context.jdbc.Sql;
 import pl.kacper.sales_api.common.exception.NoSuchDbRecordException;
 import pl.kacper.sales_api.common.exception.paymentException.PaymentIntentStateMismatchException;
 import pl.kacper.sales_api.domain.BaseIT;
+import pl.kacper.sales_api.domain.message.OutboxMessageEntity;
+import pl.kacper.sales_api.domain.message.OutboxMessageRepository;
+import pl.kacper.sales_api.domain.message.dto.message_payload.CompletedOrderMessagePayloadDto;
+import pl.kacper.sales_api.domain.message.property.AggregateType;
+import pl.kacper.sales_api.domain.message.property.MessagePayloadVersion;
+import pl.kacper.sales_api.domain.message.property.OperationType;
 import pl.kacper.sales_api.domain.order.*;
 import pl.kacper.sales_api.domain.order.dto.OrderRequestDto;
 import pl.kacper.sales_api.domain.order.dto.OrderResponseDto;
@@ -19,9 +26,11 @@ import pl.kacper.sales_api.domain.seat.SeatStatus;
 import pl.kacper.sales_api.domain.user.UserEntity;
 import pl.kacper.sales_api.domain.user.UserRepository;
 import pl.kacper.sales_api.utils.TransactionTestUtil;
+import tools.jackson.databind.ObjectMapper;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.*;
@@ -37,12 +46,14 @@ public class StripeTransactionServiceIT extends BaseIT {
     private final OrderItemRepository orderItemRepository;
     private final SeatRepository seatRepository;
     private final OrderLifecycleService orderLifecycleService;
+    private final OutboxMessageRepository outboxMessageRepository;
+    private final ObjectMapper objectMapper;
 
     @Autowired
     public StripeTransactionServiceIT(StripeEventRepository stripeEventRepository,
                                       StripeTransactionService stripeTransactionService, OrderService orderService, UserRepository userRepository,
                                       OrderRepository orderRepository, TransactionTestUtil transactionTestUtil, OrderItemRepository orderItemRepository, SeatRepository seatRepository,
-                                      OrderLifecycleService orderLifecycleService) {
+                                      OrderLifecycleService orderLifecycleService, OutboxMessageRepository outboxMessageRepository, ObjectMapper objectMapper) {
         this.stripeEventRepository = stripeEventRepository;
         this.stripeTransactionService = stripeTransactionService;
         this.orderService = orderService;
@@ -52,6 +63,8 @@ public class StripeTransactionServiceIT extends BaseIT {
         this.orderItemRepository = orderItemRepository;
         this.seatRepository = seatRepository;
         this.orderLifecycleService = orderLifecycleService;
+        this.outboxMessageRepository = outboxMessageRepository;
+        this.objectMapper = objectMapper;
     }
 
     @Test
@@ -947,6 +960,9 @@ public class StripeTransactionServiceIT extends BaseIT {
 
             OrderEntity orderEntityAfter = orderRepository.findById(orderId)
                     .orElseThrow(() -> new NoSuchDbRecordException("There is no Order with orderId=%s in Test Database".formatted(orderId)));
+
+            Assertions.assertThat(stripeEventRepository.existsById(stripeEventId)).isTrue();
+
             Assertions.assertThat(orderEntityAfter.getOrderStatus()).isEqualTo(OrderStatus.EXPIRED);
             Assertions.assertThat(orderEntityAfter.getPaymentStatus()).isEqualTo(PaymentStatus.REFUND_REQUIRED);
             Assertions.assertThat(orderEntityAfter.getPaidAt()).isNotNull();
@@ -956,7 +972,90 @@ public class StripeTransactionServiceIT extends BaseIT {
             Assertions.assertThat(orderSeatsAfter).hasSize(seatReservedNumber);
             Assertions.assertThat(orderSeatsAfter)
                     .allMatch(seat -> seat.getSeatStatus() == SeatStatus.AVAILABLE);
+
         }
+    }
+
+    @Test
+    @Sql(
+            scripts = "classpath:scripts/sql/init_event.sql"
+    )
+    void shouldCreateValidOrderOutbox() {
+        UserEntity userEntity = new UserEntity("test@gmail.com", "Password123", "TestFirstname", "TestLastname");
+        userRepository.save(userEntity);
+
+        final Long eventId = 1L;
+        final int seatReservedCount = 3;
+        OrderRequestDto orderRequestDto = new OrderRequestDto(List.of(new TicketRequestDto(eventId, seatReservedCount)));
+        OrderResponseDto orderResponseDto = orderService.createOrder(orderRequestDto, userEntity);
+        UUID orderId = orderResponseDto.orderID();
+
+        OrderEntity orderEntity = orderRepository.findById(orderId)
+                .orElseThrow(() -> new NoSuchDbRecordException("Order with ID=%s does not exists".formatted(orderId)));
+
+        String paymentIntentId = "pi_123";
+        String stripeEventId = "evt_123456";
+        orderEntity.setStripePaymentIntentId(paymentIntentId);
+        orderEntity.setPaymentStatus(PaymentStatus.PENDING);
+        orderEntity.setPaymentInitializedAt(Instant.now());
+        orderRepository.save(orderEntity);
+
+        StripeEventContext stripeEventContext = new StripeEventContext(orderId, paymentIntentId, StripeWebhookEvent.PI_SUCCEEDED);
+
+        stripeTransactionService.processEvent(stripeEventContext, stripeEventId);
+
+        OrderEntity orderEntityAfter = orderRepository.findById(orderId)
+                .orElseThrow(() -> new NoSuchDbRecordException("Order with ID=%s does not exists".formatted(orderId)));
+
+        Assertions.assertThat(orderEntityAfter.getOrderStatus()).isEqualTo(OrderStatus.COMPLETED);
+        Assertions.assertThat(orderEntityAfter.getPaymentStatus()).isEqualTo(PaymentStatus.SUCCEEDED);
+        Assertions.assertThat(orderEntityAfter.getStripePaymentIntentId()).isEqualTo(paymentIntentId);
+        Assertions.assertThat(orderEntityAfter.getPaidAt()).isNotNull();
+
+        List<Long> seatIdsByOrderIds = orderItemRepository.findSeatIdsByOrderIds(List.of(orderId));
+        List<SeatEntity> orderSeats = seatRepository.findAllById(seatIdsByOrderIds);
+        Assertions.assertThat(orderSeats).hasSize(seatReservedCount);
+        Assertions.assertThat(orderSeats)
+                .allMatch(seat -> seat.getSeatStatus() == SeatStatus.SOLD);
+
+        List<OutboxMessageEntity> allMessageEntities = outboxMessageRepository.findAll();
+        Assertions.assertThat(allMessageEntities).hasSize(1);
+        OutboxMessageEntity messageEntity = allMessageEntities.getFirst();
+        Assertions.assertThat(messageEntity.getAggregateId()).isEqualTo(orderId.toString());
+        Assertions.assertThat(messageEntity.getAggregateType()).isEqualTo(AggregateType.ORDER);
+        Assertions.assertThat(messageEntity.getOperationType()).isEqualTo(OperationType.PAID);
+        Assertions.assertThat(messageEntity.getPayloadVersion()).isEqualTo(MessagePayloadVersion.V1);
+
+        String payload = messageEntity.getPayload();
+        CompletedOrderMessagePayloadDto completedOrderMessagePayloadDto = objectMapper.readValue(payload, CompletedOrderMessagePayloadDto.class);
+        Assertions.assertThat(completedOrderMessagePayloadDto.itemList())
+                .hasSize(seatReservedCount);
+        Assertions.assertThat(completedOrderMessagePayloadDto.orderId()).isEqualTo(orderId);
+        Assertions.assertThat(completedOrderMessagePayloadDto.purchaserEmail()).isEqualTo(userEntity.getEmail());
+        Assertions.assertThat(completedOrderMessagePayloadDto.paidAt()).isNotNull();
+
+        List<OrderItemEntity> orderItemsWithEventAndSeatByOrderId = orderItemRepository.findOrderItemsWithEventAndSeatByOrderId(orderId, Sort.unsorted());
+        List<CompletedOrderMessagePayloadDto.Item> itemListFromOrderItemEntity = new ArrayList<>();
+        for (OrderItemEntity orderItemEntity : orderItemsWithEventAndSeatByOrderId) {
+            itemListFromOrderItemEntity.add(
+                    new CompletedOrderMessagePayloadDto.Item(
+                            orderItemEntity.getOrderItemId(),
+                            orderItemEntity.getEvent().getName(),
+                            orderItemEntity.getEvent().getLocation().country(),
+                            orderItemEntity.getEvent().getLocation().city(),
+                            orderItemEntity.getEvent().getLocation().street(),
+                            orderItemEntity.getEvent().getLocation().no(),
+                            orderItemEntity.getEvent().getLocation().postalCode(),
+                            orderItemEntity.getEvent().getEventDate(),
+                            orderItemEntity.getEvent().getEventCategory(),
+                            orderItemEntity.getSeat().getSeatNumber()
+                    )
+            );
+        }
+        List<CompletedOrderMessagePayloadDto.Item> itemListFromOutboxMessage = completedOrderMessagePayloadDto.itemList();
+
+        Assertions.assertThat(itemListFromOutboxMessage)
+                .containsExactlyInAnyOrderElementsOf(itemListFromOrderItemEntity);
     }
 
 }
