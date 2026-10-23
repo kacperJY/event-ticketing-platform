@@ -1,0 +1,11 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5433/event-ticketing-platform-fulfillment-worker-db
+    username: admin
+    password: admin
+
+  jpa:
+    show-sql: true
+    properties:
+      hibernate:
+        generate_statistics: true
