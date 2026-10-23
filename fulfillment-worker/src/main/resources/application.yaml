@@ -1,3 +1,25 @@
 spring:
   application:
     name: fulfillment-worker
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    database: postgresql
+    open-in-view: false
+    properties:
+      hibernate:
+        order_updates: true
+        order_inserts: true
+        jdbc:
+          batch_size: ${database.batch-size}
+  threads:
+    virtual:
+      enabled: true
+
+  flyway:
+    locations: classpath:db/migration
+    enabled: true
+
+database:
+  batch-size: 50
