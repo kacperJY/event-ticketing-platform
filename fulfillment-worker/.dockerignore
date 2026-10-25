@@ -1,0 +1,8 @@
+.git
+.idea
+**/target
+*.env
+*.log
+rabbitmq
+rabbitmq.example
+local.secrets.properties
