@@ -2,7 +2,7 @@ spring:
   config:
     import: file:./local.secrets.properties
   datasource:
-    url: jdbc:postgresql://localhost:5432/event-ticketing-platform-db
+    url: jdbc:postgresql://localhost:5432/event-ticketing-platform-sales-api-db
     username: admin
     password: admin
 

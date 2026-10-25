@@ -1,74 +1,116 @@
 services:
-  event-ticketing-platform-db:
+  event-ticketing-platform-sales-api-db:
     image: postgres:17.10
-    container_name: "event-ticketing-platform-db"
-    environment:
-      - "POSTGRES_DB"
-      - "POSTGRES_USER"
-      - "POSTGRES_PASSWORD"
+    container_name: "event-ticketing-platform-sales-api-db"
     volumes:
-       - event-ticketing-platform-db-volume:/var/lib/postgresql/data
+       - event-ticketing-platform-sales-api-db-volume:/var/lib/postgresql/data
     networks:
-      - main-network
+      - sales-api-db-network
     ports:
-      - "5432:5432"
+      - "${SALES_API_DB_HOST_PORT_LOCAL}:${SALES_API_DB_HOST_PORT}"
+    environment:
+      - "POSTGRES_DB=${SALES_API_POSTGRES_DB}"
+      - "POSTGRES_USER=${SALES_API_POSTGRES_USER}"
+      - "POSTGRES_PASSWORD=${SALES_API_POSTGRES_PASSWORD}"
     healthcheck:
-      test: [ "CMD-SHELL", "sh -c 'pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}'" ]
+      test: [ "CMD-SHELL", "sh -c 'pg_isready -U ${SALES_API_POSTGRES_USER} -d ${SALES_API_POSTGRES_DB}'" ]
       interval: 30s
       timeout: 10s
       retries: 5
     profiles: ["prod","dev"]
+
+  event-ticketing-platform-fulfillment-worker-db:
+    image: postgres:17.10
+    container_name: "event-ticketing-platform-fulfillment-worker-db"
+    volumes:
+      - event-ticketing-platform-fulfillment-worker-db-volume:/var/lib/postgresql/data
+    networks:
+      - fulfillment-worker-db-network
+    ports:
+      - "${FULFILLMENT_WORKER_DB_HOST_PORT_LOCAL}:${FULFILLMENT_WORKER_DB_HOST_PORT}"
+    environment:
+      - "POSTGRES_DB=${FULFILLMENT_WORKER_POSTGRES_DB}"
+      - "POSTGRES_USER=${FULFILLMENT_WORKER_POSTGRES_USER}"
+      - "POSTGRES_PASSWORD=${FULFILLMENT_WORKER_POSTGRES_PASSWORD}"
+    healthcheck:
+      test: [ "CMD-SHELL", "sh -c 'pg_isready -U ${FULFILLMENT_WORKER_POSTGRES_USER} -d ${FULFILLMENT_WORKER_POSTGRES_DB}'" ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    profiles: [ "prod","dev" ]
+
   event-ticketing-platform-message-broker:
     image: rabbitmq:4.3.2-management
     container_name: "event-ticketing-platform-message-broker"
     ports:
-      - "${RABBITMQ_MANAGEMENT_TCP_PORT}:${RABBITMQ_MANAGEMENT_TCP_PORT}"
-      - "${RABBITMQ_NODE_PORT}:${RABBITMQ_NODE_PORT}"
+      - "${RABBITMQ_MANAGEMENT_TCP_PORT_LOCAL}:${RABBITMQ_MANAGEMENT_TCP_PORT}"
+      - "${RABBITMQ_NODE_PORT_LOCAL}:${RABBITMQ_NODE_PORT}"
     environment:
-      - "RABBITMQ_DEFAULT_USER=${RABBITMQ_DEFAULT_USER}"
-      - "RABBITMQ_DEFAULT_PASS=${RABBITMQ_DEFAULT_PASS}"
-      - "RABBITMQ_CONFIG_FILE=${RABBITMQ_CONFIG_FILE}"
+      - "RABBITMQ_DEFAULT_USER"
+      - "RABBITMQ_DEFAULT_PASS"
+      - "RABBITMQ_CONFIG_FILE"
     volumes:
       - ./rabbitmq:/config/rabbitmq
       - event-ticketing-platform-message-broker-volume:/var/lib/rabbitmq
     networks:
-      - main-network
+      - broker-network
     healthcheck:
       test: [ "CMD-SHELL", "rabbitmq-diagnostics check_port_connectivity" ]
       interval: 30s
       timeout: 10s
       retries: 5
     profiles: ["prod","dev"]
+
+
   event-ticketing-platform-sales-api:
     build: ./sales-api
     image: kacperjn/sales-api
     container_name: "event-ticketing-platform-sales-api"
     pull_policy: build
     networks:
-      - main-network
+      - sales-api-db-network
+      - broker-network
     ports:
-      - "${SERVER_PORT}:${SERVER_PORT}"
+      - "${SALES_API_HOST_PORT}:${SALES_API_HOST_PORT}"
     environment:
-      - "SERVER_PORT"
       - "SPRING_PROFILES_ACTIVE=prod"
-      - "DB_URL"
-      - "DB_USER"
-      - "DB_PASSWORD"
-      - "RABBITMQ_HOST"
-      - "RABBITMQ_NODE_PORT"
-      - "RABBITMQ_DEFAULT_USER"
-      - "RABBITMQ_DEFAULT_PASS"
-      - "JWT_SECRET_KEY"
-      - "STRIPE_SECRET_KEY"
-      - "STRIPE_WEBHOOK_SECRET"
+      - "HOST_PORT=${SALES_API_HOST_PORT}"
+      - "RABBITMQ_NODE_PORT=${RABBITMQ_NODE_PORT}"
+    env_file:
+      - ./sales_api.env
     depends_on:
-      event-ticketing-platform-db:
+      event-ticketing-platform-sales-api-db:
         condition: service_healthy
       event-ticketing-platform-message-broker:
         condition: service_healthy
     profiles: ["prod"]
+
+  event-ticketing-platform-fulfillment-worker:
+    build: ./fulfillment-worker
+    image: kacperjn/fulfillment-worker
+    container_name: "event-ticketing-platform-fulfillment-worker"
+    pull_policy: build
+    networks:
+      - fulfillment-worker-db-network
+      - broker-network
+    environment:
+      - "SPRING_PROFILES_ACTIVE=prod"
+      - "RABBITMQ_NODE_PORT=${RABBITMQ_NODE_PORT}"
+    env_file:
+      - ./fulfillment_worker.env
+    depends_on:
+      event-ticketing-platform-fulfillment-worker-db:
+        condition: service_healthy
+      event-ticketing-platform-message-broker:
+        condition: service_healthy
+    profiles: [ "prod" ]
+
 volumes:
-  event-ticketing-platform-db-volume:
+  event-ticketing-platform-sales-api-db-volume:
   event-ticketing-platform-message-broker-volume:
+  event-ticketing-platform-fulfillment-worker-db-volume:
+
 networks:
-  main-network:
+  sales-api-db-network:
+  fulfillment-worker-db-network:
+  broker-network:

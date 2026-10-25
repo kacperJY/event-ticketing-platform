@@ -6,10 +6,9 @@
 .vscode/
 
 # DOCKER #
-.env.app
-.env.db
+sales_api.env
+fulfillment_worker.env
 .env
-.env.rabbit
 rabbitmq
 
 # System operacyjny

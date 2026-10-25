@@ -21,5 +21,15 @@ spring:
     locations: classpath:db/migration
     enabled: true
 
+  rabbitmq:
+    listener:
+      simple:
+        prefetch: 250
+
 database:
   batch-size: 50
+
+sales-api:
+  rabbitmq:
+    order-completed:
+      queue-name: "event-ticketing-platform.sales-api.completed-order.queue"

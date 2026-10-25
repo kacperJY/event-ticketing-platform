@@ -8,7 +8,7 @@
 
 Backend portfolio project for event management, seat inventory, orders, payments and refunds. The project focuses on concurrency, transaction boundaries, reliable messaging and integration with an external payment provider.
 
-> **Current milestone:** the Sales API implements checkout, order expiration, Stripe PaymentIntent initialization, signed webhooks, automatic refunds for late payments and reliable publication of successfully paid orders for fulfillment. The worker is currently a scaffold; it will consume the fulfillment contract, generate tickets and store them in its own database.
+> **Current milestone:** the Sales API implements checkout, order expiration, Stripe PaymentIntent initialization, signed webhooks, automatic refunds for late payments and reliable publication of successfully paid orders for fulfillment. The worker now has its own persistence model, Flyway schema and Docker runtime; consuming the fulfillment contract, generating tickets and delivering them remain the next stage.
 
 ## Current scope
 
@@ -26,10 +26,10 @@ Backend portfolio project for event management, seat inventory, orders, payments
 | Refund initiation | Scheduled TX1 → Stripe CREATE → TX2 flow |
 | Refund outcomes | `refund.created`, `refund.updated` and `refund.failed` |
 | Automated verification | Unit tests and PostgreSQL/RabbitMQ integration tests |
-| Runtime and CI | Sales API Docker image, Compose profiles and GitHub Actions |
+| Runtime and CI | Sales API and worker Docker images, isolated Compose networks and Sales API GitHub Actions |
 | Paid-order publication for fulfillment | Transactional outbox with one versioned message per completed order |
-| Fulfillment worker | Spring Boot scaffold only |
-| Ticket ownership and deduplication | Planned in the worker's own database |
+| Fulfillment worker | Persistence model, Flyway schema and Docker runtime foundation |
+| Ticket ownership and deduplication | Worker-owned tables and database constraints; consumer planned |
 | Ticket generation, PDF and email | Planned |
 | OpenAPI documentation | Planned |
 
@@ -49,9 +49,11 @@ Client ──HTTP/JWT──> Sales API
                        |
                        └── RabbitMQ
                              |── CreateEventMessageConsumer → batch seat generation
-                             └── completed-order queue → future Fulfillment Worker
-                                                           └── separate worker database
-                                                                 └── Ticket records + deduplication
+                             └── completed-order queue → Fulfillment Worker (consumer planned)
+                                                           └── separate worker PostgreSQL
+                                                                 |── fulfillment_orders
+                                                                 |── tickets
+                                                                 └── processed_messages
 
 Successful payment transaction:
 order + seats + Stripe inbox + fulfillment outbox → commit
@@ -60,11 +62,13 @@ order + seats + Stripe inbox + fulfillment outbox → commit
 
 ```text
 event-ticketing-platform/
-├── sales-api/             # implemented application
-├── fulfillment-worker/    # future ticket fulfillment
-├── .github/workflows/     # Sales API verification
-├── compose.yaml           # dev infrastructure and prod-style runtime
-├── .env.example
+├── sales-api/                       # implemented API and fulfillment producer
+├── fulfillment-worker/              # worker persistence and runtime foundation
+├── .github/workflows/               # Sales API verification
+├── compose.yaml                     # shared infrastructure and application runtime
+├── .env.example                     # Compose and infrastructure variables
+├── sales_api.env.example            # Sales API container variables
+├── fulfillment_worker.env.example   # worker container variables
 └── rabbitmq.example
 ```
 
@@ -226,7 +230,7 @@ Known limitations and follow-up work:
 - `requires_action`, manually created refunds and partial/multiple-refund workflows are outside the current application contract.
 - A late failed refund is handled through `refund.failed`; subscribe to all six supported events. `created`/`updated` with `failed` do not themselves reverse local `REFUNDED`.
 - Automated coordinator coverage currently verifies successful TX1 → CREATE → TX2 orchestration. A failed TX2 followed by a coordinator rerun remains a useful additional recovery test.
-- The Sales API publishes the fulfillment request, but ticket generation, persistence, PDF creation and delivery are not implemented yet. The worker will own Ticket data in a separate database.
+- The Sales API publishes the fulfillment request and the worker owns its ticket schema, but message consumption, ticket creation, PDF generation and delivery are not implemented yet.
 - There is no reconciliation or backfill flow for orders completed before fulfillment publication was introduced.
 
 ## API overview
@@ -253,13 +257,19 @@ From `sales-api/`:
 ./mvnw clean verify  # unit + integration tests, packaging
 ```
 
+From `fulfillment-worker/`:
+
+```bash
+./mvnw clean verify  # schema validation and worker persistence integration test
+```
+
 Integration tests require a running Docker daemon and start isolated PostgreSQL/RabbitMQ containers. The `test` profile disables scheduled scanners. Stripe API calls are mocked in automated payment/refund orchestration tests; webhook HTTP tests construct signed payloads.
 
 Coverage includes state matrices, inbox commit/rollback, duplicate and concurrent event delivery, missing local IDs and subsequent retry, order locking, refund candidate selection, refund TX2 persistence and lock failure, successful refund orchestration with request-argument assertions, and the atomic successful-payment path that persists a complete fulfillment payload in the outbox.
 
 Testcontainers and Compose both pin PostgreSQL to `postgres:17.10` and RabbitMQ to `rabbitmq:4.3.2-management`.
 
-GitHub Actions runs Sales API verification on pushes to `main` and pull requests targeting `main`. Worker behavior is not covered by this CI job yet.
+GitHub Actions runs Sales API verification on pushes to `main` and pull requests targeting `main`. Worker verification is currently local and is not covered by this CI job yet.
 
 ## Local development
 
@@ -269,20 +279,30 @@ Requirements: Java 25, Docker with Compose, a Stripe sandbox and the [Stripe CLI
 git clone https://github.com/kacperJY/event-ticketing-platform.git
 cd event-ticketing-platform
 cp .env.example .env
+cp sales_api.env.example sales_api.env
+cp fulfillment_worker.env.example fulfillment_worker.env
 cp rabbitmq.example rabbitmq
 ```
 
-For DEV, fill the infrastructure credentials in `.env` to match `application-dev.yaml`:
+The files have separate responsibilities:
+
+- `.env` is read by Docker Compose for variable interpolation and configures ports, database containers and RabbitMQ initialization.
+- `sales_api.env` contains variables injected into the Sales API container in the `prod` profile.
+- `fulfillment_worker.env` contains variables injected into the worker container in the `prod` profile.
+- `rabbitmq` is mounted into the broker container as its configuration file.
+
+For DEV, fill the infrastructure credentials in `.env` to match both applications' `application-dev.yaml` files:
 
 ```properties
-POSTGRES_DB=event-ticketing-platform-db
-POSTGRES_USER=admin
-POSTGRES_PASSWORD=admin
+SALES_API_POSTGRES_USER=admin
+SALES_API_POSTGRES_PASSWORD=admin
+FULFILLMENT_WORKER_POSTGRES_USER=admin
+FULFILLMENT_WORKER_POSTGRES_PASSWORD=admin
 RABBITMQ_DEFAULT_USER=admin
 RABBITMQ_DEFAULT_PASS=admin
 ```
 
-Keep the example RabbitMQ host ports at `5672` and `15672`, and `RABBITMQ_CONFIG_FILE=/config/rabbitmq`. The copied `rabbitmq` file configures these same ports.
+The database names are already present in the example. Keep the Sales API database host port at `5432`, the worker database host port at `5433`, the RabbitMQ host ports at `5672` and `15672`, and `RABBITMQ_CONFIG_FILE=/config/rabbitmq`. The copied `rabbitmq` file configures the same broker ports.
 
 Start the infrastructure from the repository root:
 
@@ -290,7 +310,16 @@ Start the infrastructure from the repository root:
 docker compose --profile dev up -d
 ```
 
-The Sales API runs on the host. PostgreSQL is available at `localhost:5432`, RabbitMQ at `localhost:5672`, and its management UI at `http://localhost:15672`.
+The DEV profile starts infrastructure only. The Sales API and worker run directly on the host:
+
+| Service | Local address |
+|---|---|
+| Sales API PostgreSQL | `localhost:5432` |
+| Fulfillment worker PostgreSQL | `localhost:5433` |
+| RabbitMQ AMQP | `localhost:5672` |
+| RabbitMQ management UI | `http://localhost:15672` |
+
+The two databases are separate containers with separate persistent volumes. The applications share RabbitMQ but do not share database access.
 
 ### Stripe CLI and signing secret
 
@@ -313,13 +342,21 @@ local.stripe.webhook.secret=<whsec_... printed by stripe listen>
 
 The webhook property name intentionally matches the existing DEV configuration. The CLI signing secret is distinct from the API key and from a Dashboard endpoint's signing secret. Restart the application after changing this file.
 
-The DEV JVM does not automatically load the root `.env`. It reads this properties file and `application-dev.yaml` instead. The file is excluded from Git and the Docker build context.
+The DEV JVM does not automatically load `.env`, `sales_api.env` or `fulfillment_worker.env`. The Sales API reads `local.secrets.properties` and `application-dev.yaml`; the worker reads its own `application-dev.yaml`. The secret file is excluded from Git and the Sales API Docker build context.
 
 Start the application from `sales-api/`:
 
 ```bash
 ./mvnw spring-boot:run -Dspring-boot.run.profiles=dev
 ```
+
+To validate the worker locally, start it separately from `fulfillment-worker/`:
+
+```bash
+./mvnw spring-boot:run -Dspring-boot.run.profiles=dev
+```
+
+At the current milestone, the worker validates and migrates its database and then exits successfully because its RabbitMQ consumer and scheduled delivery process are not implemented yet. It will become a long-running process when that behavior is added.
 
 The DEV profile seeds these local accounts:
 
@@ -354,27 +391,65 @@ Generic `stripe trigger` fixtures create independent test objects and do not aut
 
 ## Production-style local Docker runtime
 
-The Compose `prod` profile runs the API inside Docker. It can still use Stripe **sandbox** credentials; a Spring profile does not select Stripe live mode.
+The Compose `prod` profile builds and runs the Sales API and fulfillment worker inside Docker together with their separate PostgreSQL databases and the shared RabbitMQ broker. The Sales API can still use Stripe **sandbox** credentials; a Spring profile does not select Stripe live mode.
 
-Fill `.env` with:
+Fill the copied files as follows:
 
-- `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`,
-- `DB_URL`, `DB_USER`, `DB_PASSWORD` matching that database,
-- `RABBITMQ_DEFAULT_USER`, `RABBITMQ_DEFAULT_PASS`, `RABBITMQ_HOST`, `RABBITMQ_NODE_PORT`,
+### `.env`
+
+This file defines the Compose model and initializes infrastructure containers:
+
+- `SALES_API_HOST_PORT`,
+- `SALES_API_POSTGRES_DB`, `SALES_API_POSTGRES_USER`, `SALES_API_POSTGRES_PASSWORD`,
+- `SALES_API_DB_HOST_PORT`, `SALES_API_DB_HOST_PORT_LOCAL`,
+- `FULFILLMENT_WORKER_POSTGRES_DB`, `FULFILLMENT_WORKER_POSTGRES_USER`, `FULFILLMENT_WORKER_POSTGRES_PASSWORD`,
+- `FULFILLMENT_WORKER_DB_HOST_PORT`, `FULFILLMENT_WORKER_DB_HOST_PORT_LOCAL`,
+- `RABBITMQ_DEFAULT_USER`, `RABBITMQ_DEFAULT_PASS`,
+- `RABBITMQ_NODE_PORT`, `RABBITMQ_NODE_PORT_LOCAL`,
+- `RABBITMQ_MANAGEMENT_TCP_PORT`, `RABBITMQ_MANAGEMENT_TCP_PORT_LOCAL`,
+- `RABBITMQ_CONFIG_FILE`.
+
+`.env` is used for Compose interpolation. Its values are not automatically exposed to every container. Compose explicitly passes the application port to the Sales API as `HOST_PORT` and the broker port to both applications as `RABBITMQ_NODE_PORT`.
+
+### `sales_api.env`
+
+This file is injected only into the Sales API container:
+
+- `DB_URL`, `DB_USER`, `DB_PASSWORD`,
 - `JWT_SECRET_KEY`, `STRIPE_SECRET_KEY`, **`STRIPE_WEBHOOK_SECRET`**,
-- `SERVER_PORT` (default example: `8080`).
+- `RABBITMQ_DEFAULT_USER`, `RABBITMQ_DEFAULT_PASS`, `RABBITMQ_HOST`.
 
-The example database and broker hostnames refer to Compose services. Use the listener's `whsec_...` for local forwarding and match its target port to `SERVER_PORT`.
+### `fulfillment_worker.env`
+
+This file is injected only into the worker container:
+
+- `DB_URL`, `DB_USER`, `DB_PASSWORD`,
+- `RABBITMQ_DEFAULT_USER`, `RABBITMQ_DEFAULT_PASS`, `RABBITMQ_HOST`.
+
+For each application, `DB_USER` and `DB_PASSWORD` must match the corresponding PostgreSQL initialization credentials from `.env`. RabbitMQ credentials must match in all three files. The example JDBC URLs and broker hostnames use Compose service names and should remain unchanged for the container runtime.
+
+Use the Stripe CLI listener's `whsec_...` as `STRIPE_WEBHOOK_SECRET` for local forwarding and match its target port to `SALES_API_HOST_PORT`.
 
 ```bash
 docker compose --profile prod up --build -d
 ```
 
-Compose passes `STRIPE_WEBHOOK_SECRET` to the API container. After changing `.env`, recreate the API container to refresh its environment; a simple container restart retains the old environment.
+The runtime uses three networks:
+
+- `sales-api-db-network` connects only the Sales API and its database,
+- `fulfillment-worker-db-network` connects only the worker and its database,
+- `broker-network` connects both applications to RabbitMQ.
+
+Neither application can reach the other application's database through the Compose networks. Both applications communicate asynchronously through the shared broker.
+
+After changing `.env`, `sales_api.env` or `fulfillment_worker.env`, recreate the affected containers to refresh their environment; a simple container restart retains the old environment.
 
 ```bash
 docker compose --profile prod up -d --force-recreate event-ticketing-platform-sales-api
+docker compose --profile prod up -d --force-recreate event-ticketing-platform-fulfillment-worker
 ```
+
+At the current milestone, the worker container starts, validates and migrates its database, and exits with code `0` because no long-running consumer or scheduler exists yet. This is expected until worker processing is implemented.
 
 Use one runtime profile at a time because both share service names, ports and volumes. Stop the selected stack with `docker compose --profile dev down` or `docker compose --profile prod down`. Adding `-v` removes its persistent data.
 
@@ -382,9 +457,11 @@ This setup is a local production-style runtime, not a complete public deployment
 
 ## Database migration policy
 
-Flyway applies migrations and Hibernate validates the resulting schema. V4 adds the Stripe inbox, refund fields and updated payment-status constraint. V5 aligns the outbox aggregate and operation constraints with the implemented `ORDER / PAID` fulfillment contract.
+Flyway applies migrations and Hibernate validates each application's schema. In the Sales API, V4 adds the Stripe inbox, refund fields and updated payment-status constraint. V5 aligns the outbox aggregate and operation constraints with the implemented `ORDER / PAID` fulfillment contract.
 
 **V1–V5 are the established migration history after this milestone. Do not edit or replace them.** Future schema or data changes belong in V6 and subsequent migrations. An existing database must have a compatible migration history; the automated suite verifies migration of a fresh database, not every historical development database.
+
+The worker owns an independent Flyway history in its own database. Its V1 creates `processed_messages`, `fulfillment_orders` and `tickets`, including lifecycle checks, source-order relationships and source-order-item uniqueness. Future worker schema changes belong in its V2 and subsequent migrations; the worker migration numbering is independent of the Sales API history.
 
 ## Next stages: fulfillment worker
 
@@ -398,18 +475,23 @@ The publisher delivers the message using the existing retry and stale-processing
 
 The `ORDER / PAID / V1` contract contains all data required to generate tickets, including stable order and order-item identifiers. The worker will not require access to the Sales API database. Backfilling orders completed before this producer existed remains a separate recovery concern.
 
-### 1. Worker-owned tickets and idempotency
+### 1. Worker-owned persistence foundation
 
-The worker will consume the fulfillment message, generate tickets for the paid order and persist the `Ticket` records in a **separate database owned by the worker**.
+The worker already owns a separate PostgreSQL schema and Flyway history. Its persistence model contains:
 
-The intended design uses persisted Ticket records as the idempotency record for ticket creation. This requires stable source identifiers and database uniqueness, so redelivery of the same logical request cannot generate additional tickets. An order can contain multiple tickets; an order ID alone cannot be a unique identifier for each Ticket. The worker's exact uniqueness key and local transaction boundary will be defined before its implementation.
+- `processed_messages`, keyed by consumer name and source message ID for inbox deduplication,
+- `fulfillment_orders`, keyed by the source order ID and carrying delivery state, retry scheduling and optimistic-lock version,
+- `tickets`, with a generated worker ticket ID, a source-order relationship and a unique source order-item ID.
 
-If all tickets for one message are created in a single local transaction, the committed Ticket set can establish that ticket creation has already completed. A failure must leave no partial set that is mistaken for completed processing, and message acknowledgement must follow the database commit. Any additional message-processing inbox needed for more complex workflows remains a design decision for that stage.
+The fulfillment lifecycle is `PENDING → PROCESSING → SENT / FAILED`. A new record starts with zero attempts and no processing timestamp. Once claimed, it remains `PROCESSING` across retryable failures; `nextAttemptAt` and `lastError` describe a scheduled retry. `SENT` and `FAILED` are terminal states, and database constraints protect compatible field combinations.
 
-Ticket deduplication covers ticket creation. PDF generation and email delivery will need their own explicit progress, retry and failure behavior; the presence of a Ticket does not prove that delivery succeeded.
+The next branch will add the RabbitMQ consumer and define the local transaction that inserts the inbox claim, fulfillment order and complete ticket set. Message acknowledgement must follow the database commit, and redelivery of the same logical request must not create additional tickets.
+
+Ticket persistence covers creation progress. PDF generation and email delivery still need explicit retry and failure behavior; the presence of a Ticket does not prove that delivery succeeded.
 
 ### 2. Subsequent work
 
+- Implement the completed-order RabbitMQ consumer and its transactional inbox boundary.
 - Add worker integration tests for broker retry, redelivery and recovery after a committed Ticket transaction.
 - Implement PDF generation and email delivery.
 - Address reconciliation/operator recovery and the known limitations above in separate changes.
