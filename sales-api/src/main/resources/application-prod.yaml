@@ -19,7 +19,7 @@ spring:
 jwt-secret-key: ${JWT_SECRET_KEY}
 
 server:
-  port: ${SERVER_PORT}
+  port: ${HOST_PORT}
 
 stripe:
   secret-key: ${STRIPE_SECRET_KEY}
