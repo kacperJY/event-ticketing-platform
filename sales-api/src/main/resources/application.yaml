@@ -56,12 +56,16 @@ rabbitmq:
       dlq: "event-ticketing-platform.sales-api.create-event.dlq"
       dlq-routing-key: "event-ticketing-platform.sales-api.create-event.dlq-routing-key"
       consumer-name: "seat-service"
-    order-completed:
+    completed-order:
       queue-name: "event-ticketing-platform.sales-api.completed-order.queue"
       routing-key: "event-ticketing-platform.sales-api.completed-order.routing-key"
+  fulfillment-worker:
+    completed-order:
+      dlq-routing-key: "event-ticketing-platform.fulfillment-worker.completed-order.dlq-routing-key"
   exchange:
     main-exchange: "event-ticketing-platform.main-exchange"
     dead-letter-exchange: "event-ticketing-platform.dead-letter-exchange"
+
 stripe:
   idempotency-key:
     payment-prefix: "payment-intent:order:"

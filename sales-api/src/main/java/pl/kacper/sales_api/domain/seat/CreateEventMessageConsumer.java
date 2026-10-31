@@ -47,7 +47,7 @@ public class CreateEventMessageConsumer  {
         this.seatService = seatService;
     }
 
-    @RabbitListener(queues = "${rabbitmq.sales-api.create-event.queue-name}")
+    @RabbitListener(queues = "${rabbitmq.sales-api.create-event.queue-name}", containerFactory = "rabbitListenerContainerFactory")
     @Transactional
     public void consumeMessage(Message message){
         UUID messageId = MessageMetadataResolver.requireMessageId(message);

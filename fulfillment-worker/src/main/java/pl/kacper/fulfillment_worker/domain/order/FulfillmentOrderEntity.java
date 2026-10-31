@@ -69,5 +69,6 @@ public class FulfillmentOrderEntity {
         this.attemptCount = 0;
         this.nextAttemptAt = null;
         this.deliveredAt = null;
+        this.lastError = null;
     }
 }

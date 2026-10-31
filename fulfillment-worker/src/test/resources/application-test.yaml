@@ -1,0 +1,13 @@
+rabbitmq:
+  consumer:
+    max-retries: 3
+    max-delay: 12
+    multiplier: 2.0
+    delay: 1
+
+spring:
+  rabbitmq:
+    publisher-confirm-type: correlated
+    publisher-returns: true
+    template:
+      mandatory: true

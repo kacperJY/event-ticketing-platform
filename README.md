@@ -1,6 +1,6 @@
 # 🎫 Event Ticketing Platform
 
-![Status](https://img.shields.io/badge/status-sales_api_complete-brightgreen)
+![Status](https://img.shields.io/badge/status-fulfillment_consumer_complete-brightgreen)
 ![Java](https://img.shields.io/badge/Java-25-blue)
 ![Spring Boot](https://img.shields.io/badge/Spring_Boot-4.1-brightgreen)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-17-4169E1)
@@ -8,7 +8,7 @@
 
 Backend portfolio project for event management, seat inventory, orders, payments and refunds. The project focuses on concurrency, transaction boundaries, reliable messaging and integration with an external payment provider.
 
-> **Current milestone:** the Sales API implements checkout, order expiration, Stripe PaymentIntent initialization, signed webhooks, automatic refunds for late payments and reliable publication of successfully paid orders for fulfillment. The worker now has its own persistence model, Flyway schema and Docker runtime; consuming the fulfillment contract, generating tickets and delivering them remain the next stage.
+> **Current milestone:** the Sales API implements checkout, order expiration, Stripe PaymentIntent initialization, signed webhooks, automatic refunds for late payments and reliable publication of successfully paid orders. The worker consumes the versioned fulfillment contract through RabbitMQ and atomically persists its inbox claim, fulfillment order and complete ticket set. PDF generation and email delivery remain the next stage.
 
 ## Current scope
 
@@ -28,9 +28,9 @@ Backend portfolio project for event management, seat inventory, orders, payments
 | Automated verification | Unit tests and PostgreSQL/RabbitMQ integration tests |
 | Runtime and CI | Sales API and worker Docker images, isolated Compose networks and Sales API GitHub Actions |
 | Paid-order publication for fulfillment | Transactional outbox with one versioned message per completed order |
-| Fulfillment worker | Persistence model, Flyway schema and Docker runtime foundation |
-| Ticket ownership and deduplication | Worker-owned tables and database constraints; consumer planned |
-| Ticket generation, PDF and email | Planned |
+| Fulfillment worker | RabbitMQ consumer, contract validation, transactional inbox and owned persistence |
+| Ticket ownership and deduplication | One worker-owned ticket per source order item, protected by inbox and database constraints |
+| PDF generation and email delivery | Planned |
 | OpenAPI documentation | Planned |
 
 ## Architecture
@@ -49,21 +49,24 @@ Client ──HTTP/JWT──> Sales API
                        |
                        └── RabbitMQ
                              |── CreateEventMessageConsumer → batch seat generation
-                             └── completed-order queue → Fulfillment Worker (consumer planned)
-                                                           └── separate worker PostgreSQL
+                             └── completed-order queue → Fulfillment Worker
+                                                           |── contract and payload validation
+                                                           |── retry → DLQ for permanent/exhausted failures
+                                                           └── separate PostgreSQL: atomic consumer transaction
+                                                                 |── processed_messages claim
                                                                  |── fulfillment_orders
-                                                                 |── tickets
-                                                                 └── processed_messages
+                                                                 └── tickets
 
 Successful payment transaction:
 order + seats + Stripe inbox + fulfillment outbox → commit
   → existing outbox publisher with retry → completed-order queue
+  → worker inbox + fulfillment order + complete ticket set → commit → ACK
 ```
 
 ```text
 event-ticketing-platform/
 ├── sales-api/                       # implemented API and fulfillment producer
-├── fulfillment-worker/              # worker persistence and runtime foundation
+├── fulfillment-worker/              # fulfillment consumer and worker-owned ticket persistence
 ├── .github/workflows/               # Sales API verification
 ├── compose.yaml                     # shared infrastructure and application runtime
 ├── .env.example                     # Compose and infrastructure variables
@@ -109,7 +112,7 @@ Payment:      PENDING → COMPLETED   seats → SOLD
 
 Expiration preserves the payment status. The payment webhook acts on the persisted order state under an order lock: a successful payment for an already `EXPIRED` order requires a refund. The success handler does not independently compare `expiresAt` with the current time.
 
-Tickets are not created inside the Sales API. A valid payment completion creates a fulfillment request for the future worker.
+Tickets are not created inside the Sales API. A valid payment completion creates a fulfillment request; the worker consumes it and persists one local ticket record for every order item.
 
 ### PaymentIntent initialization
 
@@ -161,18 +164,27 @@ A `payment_intent.succeeded` event creates a fulfillment request only for the va
 - completes the order and marks its seats as sold,
 - saves one `ORDER / PAID / V1` outbox message for the whole order.
 
-The payload contains the order ID, purchaser email, payment completion time and one item per order item. Every item carries a stable order-item ID together with the event name, location, date, category and seat number. The worker therefore will not need read access to the Sales API database.
+The payload contains the order ID, purchaser email, payment completion time and one item per order item. Every item carries a stable order-item ID together with the event name, location, date, category and seat number. The worker therefore does not need read access to the Sales API database.
 
 ```text
 PENDING / PENDING + payment_intent.succeeded
   → transaction: COMPLETED / SUCCEEDED + seats SOLD + Outbox(PENDING)
   → existing publisher and retry recovery
   → RabbitMQ completed-order queue
+  → worker resolver + payload validator
+  → transaction: inbox claim + FulfillmentOrder(PENDING) + complete Ticket set
+  → commit → automatic acknowledgement
 ```
 
 A late successful payment for an `EXPIRED` order enters the refund flow and does not create a fulfillment request. Re-delivery of the same Stripe event is stopped by the transactional inbox. A different success event for an already completed order reaches the existing idempotent no-op transition and does not create another outbox message.
 
-RabbitMQ confirmation proves that the broker accepted the message. It does not prove that the future worker generated or delivered the tickets, so worker processing must remain idempotent.
+The worker first validates the message identifier, contract headers, content type, aggregate ID and `ORDER / PAID / V1` routing contract. Bean Validation then checks the payload fields and rejects duplicated source order-item IDs. Invalid contracts are rejected without retry; unexpected processing failures use bounded stateless retry. Permanent failures and exhausted retries are rejected to the worker-owned DLQ.
+
+The consumer transaction inserts `(consumerName, messageId)` into `processed_messages` using `ON CONFLICT DO NOTHING`. A new claim creates the fulfillment order and all tickets in the same transaction. Redelivery after a committed database transaction becomes a no-op, while any persistence failure rolls back the inbox claim and remains retryable. `AUTO` acknowledgement occurs only after the listener returns successfully.
+
+Both applications declare the same durable main exchange, dead-letter exchange, completed-order queue and binding with identical arguments. This lets either application start first. The worker alone declares and binds its completed-order DLQ.
+
+RabbitMQ confirmation proves that the broker accepted the message. The committed worker transaction proves that its fulfillment order and tickets were persisted. Neither proves that PDFs were generated or emails delivered; that delivery stage remains separate and must also be retryable.
 
 ### Automatic refunds
 
@@ -216,7 +228,8 @@ refund.failed can also change REFUNDED → REFUND_FAILED and clear refundedAt.
 | Duplicate webhook | Event-ID primary key and atomic inbox claim |
 | Webhook arriving before local initialization completes | Rollback and retryable HTTP error |
 | Repeated refund creation | Stable idempotency key and parameters; idempotent TX2 |
-| Duplicate AMQP message | Transactional processed marker |
+| Duplicate AMQP message | Atomic inbox claim in the same transaction as the worker-owned order and tickets |
+| Invalid or repeatedly failing fulfillment message | Permanent contract failures and exhausted retries are rejected to the worker DLQ |
 | Publisher failure | Outbox retries and stale-processing recovery |
 | Order completion versus fulfillment publication | Order transition, Stripe inbox and fulfillment outbox commit together |
 
@@ -230,7 +243,7 @@ Known limitations and follow-up work:
 - `requires_action`, manually created refunds and partial/multiple-refund workflows are outside the current application contract.
 - A late failed refund is handled through `refund.failed`; subscribe to all six supported events. `created`/`updated` with `failed` do not themselves reverse local `REFUNDED`.
 - Automated coordinator coverage currently verifies successful TX1 → CREATE → TX2 orchestration. A failed TX2 followed by a coordinator rerun remains a useful additional recovery test.
-- The Sales API publishes the fulfillment request and the worker owns its ticket schema, but message consumption, ticket creation, PDF generation and delivery are not implemented yet.
+- The worker persists fulfillment orders and ticket records, but PDF generation and email delivery are not implemented yet.
 - There is no reconciliation or backfill flow for orders completed before fulfillment publication was introduced.
 
 ## API overview
@@ -260,12 +273,14 @@ From `sales-api/`:
 From `fulfillment-worker/`:
 
 ```bash
-./mvnw clean verify  # schema validation and worker persistence integration test
+./mvnw clean verify  # unit + PostgreSQL/RabbitMQ integration tests, packaging
 ```
 
 Integration tests require a running Docker daemon and start isolated PostgreSQL/RabbitMQ containers. The `test` profile disables scheduled scanners. Stripe API calls are mocked in automated payment/refund orchestration tests; webhook HTTP tests construct signed payloads.
 
-Coverage includes state matrices, inbox commit/rollback, duplicate and concurrent event delivery, missing local IDs and subsequent retry, order locking, refund candidate selection, refund TX2 persistence and lock failure, successful refund orchestration with request-argument assertions, and the atomic successful-payment path that persists a complete fulfillment payload in the outbox.
+Sales API coverage includes state matrices, inbox commit/rollback, duplicate and concurrent event delivery, missing local IDs and subsequent retry, order locking, refund candidate selection, refund TX2 persistence and lock failure, successful refund orchestration with request-argument assertions, and the atomic successful-payment path that persists a complete fulfillment payload in the outbox.
+
+Worker coverage includes message-contract resolution, payload validation, duplicate order-item detection, atomic inbox/order/ticket persistence, sequential and concurrent redelivery, successful AMQP consumption, retry followed by recovery, immediate rejection of permanent routing failures and dead-lettering after exhausted retries.
 
 Testcontainers and Compose both pin PostgreSQL to `postgres:17.10` and RabbitMQ to `rabbitmq:4.3.2-management`.
 
@@ -356,7 +371,9 @@ To validate the worker locally, start it separately from `fulfillment-worker/`:
 ./mvnw spring-boot:run -Dspring-boot.run.profiles=dev
 ```
 
-At the current milestone, the worker validates and migrates its database and then exits successfully because its RabbitMQ consumer and scheduled delivery process are not implemented yet. It will become a long-running process when that behavior is added.
+The worker is a long-running RabbitMQ consumer. On startup it migrates and validates its database, declares the shared completed-order topology and its own DLQ, then waits for paid-order messages.
+
+The completed-order queue now has dead-letter exchange arguments. If a local broker volume contains an older queue created without these arguments, RabbitMQ rejects the incompatible redeclaration with `PRECONDITION_FAILED`. Delete that queue once through the management UI or recreate the local broker volume before starting the updated applications.
 
 The DEV profile seeds these local accounts:
 
@@ -388,6 +405,8 @@ stripe post /v1/payment_intents/pi_REPLACE_ME/cancel
 A succeeded PaymentIntent cannot be canceled. For the automatic refund scenario, initialize a fresh order's PaymentIntent, wait until the order is actually `EXPIRED` locally, then confirm that PaymentIntent. The success webhook should mark it `REFUND_REQUIRED`; the scheduler creates and links the refund, and refund webhooks resolve its status. Observe application logs and persisted state; webhook processing is asynchronous.
 
 Generic `stripe trigger` fixtures create independent test objects and do not automatically target your order. Creating a refund manually also bypasses the scheduler's local linking transaction, so it is not equivalent to testing the complete application refund flow.
+
+For the fulfillment flow, confirm an application-created PaymentIntent belonging to a non-expired order. After the `payment_intent.succeeded` webhook completes, the Sales API should mark the order `COMPLETED / SUCCEEDED`, save and publish one outbox record, and the worker should persist one inbox claim, one fulfillment order and one ticket for every source order item. The completed-order queue and worker DLQ should both be empty after successful processing.
 
 ## Production-style local Docker runtime
 
@@ -449,7 +468,7 @@ docker compose --profile prod up -d --force-recreate event-ticketing-platform-sa
 docker compose --profile prod up -d --force-recreate event-ticketing-platform-fulfillment-worker
 ```
 
-At the current milestone, the worker container starts, validates and migrates its database, and exits with code `0` because no long-running consumer or scheduler exists yet. This is expected until worker processing is implemented.
+The worker container remains active as the completed-order consumer. It can start before or after the Sales API because both applications declare the same shared exchange, source queue and binding. The worker additionally owns the DLQ and its separate PostgreSQL schema.
 
 Use one runtime profile at a time because both share service names, ports and volumes. Stop the selected stack with `docker compose --profile dev down` or `docker compose --profile prod down`. Adding `-v` removes its persistent data.
 
@@ -463,38 +482,34 @@ Flyway applies migrations and Hibernate validates each application's schema. In 
 
 The worker owns an independent Flyway history in its own database. Its V1 creates `processed_messages`, `fulfillment_orders` and `tickets`, including lifecycle checks, source-order relationships and source-order-item uniqueness. Future worker schema changes belong in its V2 and subsequent migrations; the worker migration numbering is independent of the Sales API history.
 
-## Next stages: fulfillment worker
+## Next stages: ticket delivery
 
-Development will continue in separate, focused work blocks. The Sales API producer boundary is complete: a valid paid-order transition persists the versioned fulfillment contract and the existing publisher delivers it through RabbitMQ. The remaining end-to-end work belongs to the worker.
+Development will continue in separate, focused work blocks. The asynchronous handoff from payment completion to worker-owned ticket persistence is complete. The remaining work turns the persisted ticket set into deliverable artifacts and processes fulfillment orders reliably.
 
-### Starting point: implemented producer boundary
+### Implemented fulfillment boundary
 
-For a fully paid, valid order (`OrderStatus.COMPLETED` and `PaymentStatus.SUCCEEDED`), the Sales API persists one fulfillment message in its existing transactional outbox. The order transition, Stripe inbox claim, seat update and outbox insert commit together. A late payment for an expired order follows the refund flow and does not request ticket generation.
+For a fully paid, valid order (`OrderStatus.COMPLETED` and `PaymentStatus.SUCCEEDED`), the Sales API persists one `ORDER / PAID / V1` message in its transactional outbox. The order transition, Stripe inbox claim, seat update and outbox insert commit together. A late payment for an expired order follows the refund flow and does not request ticket generation.
 
-The publisher delivers the message using the existing retry and stale-processing recovery mechanisms. Duplicate payment delivery does not create another fulfillment request. Broker confirmation means the broker accepted the message; it does not mean the worker generated the tickets.
-
-The `ORDER / PAID / V1` contract contains all data required to generate tickets, including stable order and order-item identifiers. The worker will not require access to the Sales API database. Backfilling orders completed before this producer existed remains a separate recovery concern.
-
-### 1. Worker-owned persistence foundation
-
-The worker already owns a separate PostgreSQL schema and Flyway history. Its persistence model contains:
+The existing publisher delivers the message using broker confirms, returns, retry and stale-processing recovery. The worker validates the contract and payload, then atomically persists:
 
 - `processed_messages`, keyed by consumer name and source message ID for inbox deduplication,
 - `fulfillment_orders`, keyed by the source order ID and carrying delivery state, retry scheduling and optimistic-lock version,
 - `tickets`, with a generated worker ticket ID, a source-order relationship and a unique source order-item ID.
 
-The fulfillment lifecycle is `PENDING → PROCESSING → SENT / FAILED`. A new record starts with zero attempts and no processing timestamp. Once claimed, it remains `PROCESSING` across retryable failures; `nextAttemptAt` and `lastError` describe a scheduled retry. `SENT` and `FAILED` are terminal states, and database constraints protect compatible field combinations.
+The contract contains all event and seat data required by the worker, so it never reads the Sales API database. Re-delivery of the same source message is a no-op after the first committed consumer transaction. Backfilling orders completed before this producer existed remains a separate recovery concern.
 
-The next branch will add the RabbitMQ consumer and define the local transaction that inserts the inbox claim, fulfillment order and complete ticket set. Message acknowledgement must follow the database commit, and redelivery of the same logical request must not create additional tickets.
+### Remaining delivery pipeline
 
-Ticket persistence covers creation progress. PDF generation and email delivery still need explicit retry and failure behavior; the presence of a Ticket does not prove that delivery succeeded.
+The fulfillment lifecycle is `PENDING → PROCESSING → SENT / FAILED`. A new record starts with zero attempts and no processing timestamp. Once claimed, it remains `PROCESSING` across retryable delivery failures; `nextAttemptAt` and `lastError` describe a scheduled retry. `SENT` and `FAILED` are terminal states, and database constraints protect compatible field combinations.
 
-### 2. Subsequent work
+The remaining work is split into focused branches:
 
-- Implement the completed-order RabbitMQ consumer and its transactional inbox boundary.
-- Add worker integration tests for broker retry, redelivery and recovery after a committed Ticket transaction.
-- Implement PDF generation and email delivery.
-- Address reconciliation/operator recovery and the known limitations above in separate changes.
-- Add OpenAPI documentation when useful for presenting the project.
+1. Configure and implement email delivery independently of scheduler orchestration.
+2. Generate a PDF containing the complete ticket set for one fulfillment order.
+3. Add the scheduler and its short transactional boundaries for claiming work, recording successful delivery and scheduling or exhausting retries.
+4. Address reconciliation/operator recovery and the known limitations above in separate changes.
+5. Add OpenAPI documentation when useful for presenting the project.
 
-This is a learning and portfolio project. The documented Sales API scope now includes payment, refund and reliable fulfillment publication; end-to-end ticket generation and delivery remain unfinished.
+Ticket persistence proves that the fulfillment request was consumed. It does not yet prove that a PDF was generated or an email delivered.
+
+This is a learning and portfolio project. The documented scope now includes payment, refund, reliable fulfillment publication and idempotent worker intake; end-to-end ticket delivery remains unfinished.
