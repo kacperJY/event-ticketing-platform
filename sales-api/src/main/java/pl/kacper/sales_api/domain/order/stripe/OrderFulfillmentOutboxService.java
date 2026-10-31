@@ -30,7 +30,7 @@ class OrderFulfillmentOutboxService {
 
     @Value("${rabbitmq.exchange.main-exchange}")
     private String mainExchangeName;
-    @Value("${rabbitmq.sales-api.order-completed.routing-key}")
+    @Value("${rabbitmq.sales-api.completed-order.routing-key}")
     private String completedOrderRoutingKey;
 
     public OrderFulfillmentOutboxService(OutboxMessageRepository outboxMessageRepository, ObjectMapper objectMapper,

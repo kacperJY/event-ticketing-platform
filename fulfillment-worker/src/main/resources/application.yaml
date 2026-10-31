@@ -24,12 +24,40 @@ spring:
   rabbitmq:
     listener:
       simple:
-        prefetch: 250
+        prefetch: 30
 
 database:
   batch-size: 50
 
-sales-api:
-  rabbitmq:
-    order-completed:
+rabbitmq:
+  consumer:
+    max-retries: 3
+    max-delay: 12
+    multiplier: 2.0
+    delay: 3
+  sales-api:
+    completed-order:
       queue-name: "event-ticketing-platform.sales-api.completed-order.queue"
+      routing-key: "event-ticketing-platform.sales-api.completed-order.routing-key"
+  fulfillment-worker:
+    completed-order:
+      consumer-name: "completed-order-service-consumer"
+      dlq: "event-ticketing-platform.fulfillment-worker.completed-order.dlq"
+      dlq-routing-key: "event-ticketing-platform.fulfillment-worker.completed-order.dlq-routing-key"
+
+  exchange:
+    dead-letter-exchange: "event-ticketing-platform.dead-letter-exchange"
+    main-exchange: "event-ticketing-platform.main-exchange"
+
+message-integration:
+  sales-api:
+    contract:
+      completed-order:
+        aggregate-type: "ORDER"
+        operation-type: "PAID"
+        message-payload-version: "V1"
+    headers:
+      aggregate-id: "aggregateId"
+      operation-type: "operationType"
+      message-payload-version: "payloadVersion"
+      aggregate-type: "aggregateType"

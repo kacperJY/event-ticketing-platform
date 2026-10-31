@@ -31,15 +31,19 @@ public class AMQPConfig {
     private String createEventQueueName;
     @Value("${rabbitmq.sales-api.create-event.dlq}")
     private String createEventDLQ;
-    @Value("${rabbitmq.sales-api.order-completed.queue-name}")
+    @Value("${rabbitmq.sales-api.completed-order.queue-name}")
     private String completedOrderQueueName;
 
     @Value("${rabbitmq.sales-api.create-event.routing-key}")
     private String createEventRoutingKey;
     @Value("${rabbitmq.sales-api.create-event.dlq-routing-key}")
     private String createEventDLQRoutingKey;
-    @Value("${rabbitmq.sales-api.order-completed.routing-key}")
+    @Value("${rabbitmq.sales-api.completed-order.routing-key}")
     private String completedOrderRoutingKey;
+
+    // FULFILLMENT_WORKER
+    @Value("${rabbitmq.fulfillment-worker.completed-order.dlq-routing-key}")
+    private String completedOrderDeadLetterRoutingKey;
 
     @Value("${rabbitmq.consumer.delay}")
     private long delay;
@@ -66,8 +70,8 @@ public class AMQPConfig {
     public Queue createEventQueue() {
         return QueueBuilder
                 .durable(createEventQueueName)
-                .withArgument("x-dead-letter-exchange", deadLetterExchangeName)
-                .withArgument("x-dead-letter-routing-key", createEventDLQRoutingKey)
+                .deadLetterExchange(deadLetterExchangeName)
+                .deadLetterRoutingKey(createEventDLQRoutingKey)
                 .build();
     }
 
@@ -75,6 +79,8 @@ public class AMQPConfig {
     public Queue completedOrderQueue() {
         return QueueBuilder
                 .durable(completedOrderQueueName)
+                .deadLetterExchange(deadLetterExchangeName)
+                .deadLetterRoutingKey(completedOrderDeadLetterRoutingKey)
                 .build();
     }
 
@@ -123,7 +129,7 @@ public class AMQPConfig {
                 .build();
     }
 
-    @Bean
+    @Bean(name = "rabbitListenerContainerFactory")
     public SimpleRabbitListenerContainerFactory rabbitListenerContainerFactory(
             StatelessRetryOperationsInterceptor interceptor,
             ConnectionFactory connectionFactory,
