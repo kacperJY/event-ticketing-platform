@@ -16,6 +16,7 @@ import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import pl.kacper.sales_api.common.exception.NoSuchDbRecordException;
 import pl.kacper.sales_api.common.exception.NoSuchQuantityException;
 import pl.kacper.sales_api.common.exception.paymentException.ExternalPaymentServiceException;
 import pl.kacper.sales_api.common.exception.paymentException.InitializationPaymentException;
@@ -25,7 +26,6 @@ import pl.kacper.sales_api.domain.event.EventRepository;
 import pl.kacper.sales_api.domain.order.dto.OrderPaymentResponseDto;
 import pl.kacper.sales_api.domain.order.dto.OrderRequestDto;
 import pl.kacper.sales_api.domain.order.dto.OrderResponseDto;
-import pl.kacper.sales_api.domain.order.dto.TicketRequestDto;
 import pl.kacper.sales_api.domain.seat.SeatEntity;
 import pl.kacper.sales_api.domain.seat.SeatRepository;
 import pl.kacper.sales_api.domain.seat.SeatStatus;
@@ -68,35 +68,27 @@ public class OrderService {
 
     @Transactional
     public OrderResponseDto createOrder(OrderRequestDto orderRequestDto, UserDetails userDetails) {
-        List<TicketRequestDto> ticketsDto = orderRequestDto.tickets();
 
-        List<TicketRequestDto> tickets = new ArrayList<>(ticketsDto);
-        tickets.sort(Comparator.comparing(TicketRequestDto::eventId));
-
-        List<Long> eventIdList = tickets.stream().map(TicketRequestDto::eventId).toList();
-
-        long existedEvents = eventRepository.countByEventIdIn(eventIdList);
-
-        // Safe-check if all event exists - to prevent fetching SeatEntity record for no reason
-        if (existedEvents != eventIdList.size())
-            throw new IllegalArgumentException("Some of the event IDs are incorrect or passed duplicate event ID. Provided %d, but found %d.".formatted(eventIdList.size(), existedEvents));
+        Long eventId = orderRequestDto.eventId();
+        int quantity = orderRequestDto.quantity();
 
         UserEntity userEntity = userRepository.findUserByEmail(userDetails.getUsername()).orElseThrow(() -> new UsernameNotFoundException("Invalid username. Cannot find user with such username: " + userDetails.getUsername()));
 
+        boolean isEventExist = eventRepository.existsById(eventId);
+        if (!isEventExist)
+            throw new NoSuchDbRecordException("Invalid event id. There is no event exist with ID=" + eventId);
 
-        Map<Long, List<SeatEntity>> seatEntitiesByEventId = mapAvailablePlacesWithEventEntities(tickets);
+        List<SeatEntity> seatEntityList = fetchAndVerifyAvailableSeats(eventId, quantity);
 
         long fullPrice = 0;
         OrderEntity orderEntity = new OrderEntity();
-        for (Map.Entry<Long, List<SeatEntity>> entry : seatEntitiesByEventId.entrySet()) {
-            Long eventId = entry.getKey();
+        for (SeatEntity seatEntity : seatEntityList) {
+
             EventEntity eventEntityReference = eventRepository.getReferenceById(eventId);
-            for (SeatEntity seatEntity : entry.getValue()) {
-                seatEntity.setSeatStatus(SeatStatus.LOCKED_FOR_CHECKOUT); // DirtyChecking - not explicit seatRepository.save()
-                fullPrice += seatEntity.getPrice();
-                OrderItemEntity orderItemEntity = createOrderItemEntity(seatEntity.getPrice(), seatEntity, eventEntityReference);
-                orderEntity.addOrderItem(orderItemEntity);
-            }
+            seatEntity.setSeatStatus(SeatStatus.LOCKED_FOR_CHECKOUT); // DirtyChecking - not explicit seatRepository.save()
+            fullPrice += seatEntity.getPrice();
+            OrderItemEntity orderItemEntity = new OrderItemEntity(seatEntity.getPrice(), seatEntity, eventEntityReference);
+            orderEntity.addOrderItem(orderItemEntity);
         }
         orderEntity.setPurchaser(userEntity);
         orderEntity.setOrderStatus(OrderStatus.PENDING);
@@ -109,28 +101,17 @@ public class OrderService {
         return new OrderResponseDto(orderEntity.getOrderId(), orderEntity.getPurchaser().getEmail(), fullPrice, orderEntity.getCreatedAt(), orderEntity.getOrderStatus());
     }
 
-    private OrderItemEntity createOrderItemEntity(long price, SeatEntity seat, EventEntity eventEntity) {
-        return new OrderItemEntity(price, seat, eventEntity);
-    }
 
-    private Map<Long, List<SeatEntity>> mapAvailablePlacesWithEventEntities(List<TicketRequestDto> tickets) {
-        Map<Long, List<SeatEntity>> seatEntityListOfEventMap = new HashMap<>();
+    private List<SeatEntity> fetchAndVerifyAvailableSeats(Long eventId, int quantity) {
 
-        for (TicketRequestDto ticket : tickets) {
-            Long eventId = ticket.eventId();
-            int quantity = ticket.quantity();
-            PageRequest pageRequest = PageRequest.of(0, quantity, Sort.by("seatId").ascending());
+        PageRequest pageRequest = PageRequest.of(0, quantity, Sort.by("seatId").ascending());
 
-            List<SeatEntity> seatEntityList = seatRepository.findSeatByEventIdWithLocking(eventId, SeatStatus.AVAILABLE, pageRequest);
+        List<SeatEntity> seatEntityList = seatRepository.findSeatByEventIdWithLocking(eventId, SeatStatus.AVAILABLE, pageRequest);
 
-            if (seatEntityList.size() != quantity)
-                throw new NoSuchQuantityException("There are not enough available tickets for event ID=%d. Expected %d but available %d. Order will not be completed".formatted(eventId, quantity, seatEntityList.size()));
+        if (seatEntityList.size() != quantity)
+            throw new NoSuchQuantityException("There are not enough available tickets for event ID=%d. Expected %d but available %d. Order will not be completed".formatted(eventId, quantity, seatEntityList.size()));
 
-            seatEntityListOfEventMap.put(eventId, seatEntityList);
-
-        }
-
-        return seatEntityListOfEventMap;
+        return seatEntityList;
     }
 
 
