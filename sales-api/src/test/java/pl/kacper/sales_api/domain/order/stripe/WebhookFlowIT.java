@@ -15,7 +15,6 @@ import pl.kacper.sales_api.domain.BaseIT;
 import pl.kacper.sales_api.domain.order.*;
 import pl.kacper.sales_api.domain.order.dto.OrderRequestDto;
 import pl.kacper.sales_api.domain.order.dto.OrderResponseDto;
-import pl.kacper.sales_api.domain.order.dto.TicketRequestDto;
 import pl.kacper.sales_api.domain.seat.SeatEntity;
 import pl.kacper.sales_api.domain.seat.SeatRepository;
 import pl.kacper.sales_api.domain.seat.SeatStatus;
@@ -62,7 +61,7 @@ public class WebhookFlowIT extends BaseIT {
         this.userEntity = new UserEntity("test@mail.com", "Testpass123", "TestFirstname", "TestLastname");
         userRepository.save(userEntity);
 
-        OrderRequestDto orderRequestDto = new OrderRequestDto(List.of(new TicketRequestDto(EVENT_ID, RESERVED_SEATS)));
+        OrderRequestDto orderRequestDto = new OrderRequestDto(EVENT_ID, RESERVED_SEATS);
         OrderResponseDto orderResponseDto = orderService.createOrder(orderRequestDto, userEntity);
 
         this.orderId = orderResponseDto.orderID();

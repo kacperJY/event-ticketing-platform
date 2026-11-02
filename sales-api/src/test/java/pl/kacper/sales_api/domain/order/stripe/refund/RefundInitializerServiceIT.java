@@ -23,12 +23,10 @@ import pl.kacper.sales_api.domain.BaseIT;
 import pl.kacper.sales_api.domain.order.*;
 import pl.kacper.sales_api.domain.order.dto.OrderRequestDto;
 import pl.kacper.sales_api.domain.order.dto.OrderResponseDto;
-import pl.kacper.sales_api.domain.order.dto.TicketRequestDto;
 import pl.kacper.sales_api.domain.user.UserEntity;
 import pl.kacper.sales_api.domain.user.UserRepository;
 
 import java.time.Instant;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -76,7 +74,7 @@ class RefundInitializerServiceIT extends BaseIT {
         final int seatsReserved = 3;
         final String paymentIntentId = "pi_123";
         final String incomingRefundId = "re_333";
-        OrderRequestDto orderRequestDto = new OrderRequestDto(List.of(new TicketRequestDto(eventId, seatsReserved)));
+        OrderRequestDto orderRequestDto = new OrderRequestDto(eventId, seatsReserved);
         OrderResponseDto orderResponseDto = orderService.createOrder(orderRequestDto, userEntity);
         UUID orderId = orderResponseDto.orderID();
 

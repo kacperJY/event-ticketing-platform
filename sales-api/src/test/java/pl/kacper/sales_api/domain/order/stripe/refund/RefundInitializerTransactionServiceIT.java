@@ -14,7 +14,6 @@ import pl.kacper.sales_api.domain.BaseIT;
 import pl.kacper.sales_api.domain.order.*;
 import pl.kacper.sales_api.domain.order.dto.OrderRequestDto;
 import pl.kacper.sales_api.domain.order.dto.OrderResponseDto;
-import pl.kacper.sales_api.domain.order.dto.TicketRequestDto;
 import pl.kacper.sales_api.domain.user.UserEntity;
 import pl.kacper.sales_api.domain.user.UserRepository;
 import pl.kacper.sales_api.utils.TransactionTestUtil;
@@ -227,7 +226,7 @@ class RefundInitializerTransactionServiceIT extends BaseIT {
 
         // A newly created order is PENDING / NOT_INITIALIZED.
         OrderResponseDto createdOrder = orderService.createOrder(
-                new OrderRequestDto(List.of(new TicketRequestDto(1L, 1))),
+                new OrderRequestDto(1L, 1),
                 user
         );
 
@@ -371,7 +370,7 @@ class RefundInitializerTransactionServiceIT extends BaseIT {
 
     private OrderEntity createRefundCandidate(UserEntity user, Consumer<OrderEntity> customize) {
         OrderResponseDto createdOrder = orderService.createOrder(
-                new OrderRequestDto(List.of(new TicketRequestDto(1L, 1))),
+                new OrderRequestDto(1L, 1),
                 user
         );
         UUID orderId = createdOrder.orderID();

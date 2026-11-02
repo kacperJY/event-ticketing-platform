@@ -6,6 +6,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.CannotAcquireLockException;
+import org.springframework.data.domain.Sort;
 import org.springframework.test.context.jdbc.Sql;
 import pl.kacper.sales_api.common.exception.ConcurrencyClaimException;
 import pl.kacper.sales_api.common.exception.NoSuchDbRecordException;
@@ -14,7 +15,6 @@ import pl.kacper.sales_api.common.exception.paymentException.InitializationPayme
 import pl.kacper.sales_api.domain.BaseIT;
 import pl.kacper.sales_api.domain.order.dto.OrderRequestDto;
 import pl.kacper.sales_api.domain.order.dto.OrderResponseDto;
-import pl.kacper.sales_api.domain.order.dto.TicketRequestDto;
 import pl.kacper.sales_api.domain.seat.SeatRepository;
 import pl.kacper.sales_api.domain.seat.SeatStatus;
 import pl.kacper.sales_api.domain.user.UserEntity;
@@ -29,6 +29,7 @@ import java.util.concurrent.*;
 public class OrderServiceIT extends BaseIT {
 
     private final OrderService orderService;
+    private final OrderItemRepository orderItemRepository;
     private final UserRepository userRepository;
     private final OrderRepository orderRepository;
     private final SeatRepository seatRepository;
@@ -38,15 +39,77 @@ public class OrderServiceIT extends BaseIT {
 
     @Autowired
     public OrderServiceIT(OrderService orderService, UserRepository userRepository, OrderRepository orderRepository, SeatRepository seatRepository,
-                          OrderTransactionService orderTransactionService, TransactionTestUtil transactionTestUtil, OrderLifecycleService orderLifecycleService) {
+                          OrderTransactionService orderTransactionService, TransactionTestUtil transactionTestUtil, OrderLifecycleService orderLifecycleService, OrderItemRepository orderItemRepository) {
         super();
         this.orderService = orderService;
+        this.orderItemRepository = orderItemRepository;
         this.userRepository = userRepository;
         this.orderRepository = orderRepository;
         this.seatRepository = seatRepository;
         this.orderTransactionService = orderTransactionService;
         this.transactionTestUtil = transactionTestUtil;
         this.orderLifecycleService = orderLifecycleService;
+    }
+
+    @Test
+    @Sql(scripts = "classpath:scripts/sql/init_event.sql")
+    void shouldPersistOrderItemsAndReserveSeatsOnlyForRequestedEvent() {
+        UserEntity userEntity = new UserEntity("test@gmail.com", "Test123", "FirstnameTest", "LastnameTest");
+        userRepository.save(userEntity);
+
+        OrderResponseDto response = orderService.createOrder(new OrderRequestDto(1L, 2), userEntity);
+
+        OrderEntity order = orderRepository.findById(response.orderID()).orElseThrow();
+        List<OrderItemEntity> items = orderItemRepository.findOrderItemsWithEventAndSeatByOrderId(
+                response.orderID(), Sort.by("seat.seatId").ascending());
+
+        Assertions.assertThat(orderRepository.count()).isEqualTo(1);
+        Assertions.assertThat(orderItemRepository.count()).isEqualTo(2);
+        Assertions.assertThat(order.getOrderStatus()).isEqualTo(OrderStatus.PENDING);
+        Assertions.assertThat(order.getPaymentStatus()).isEqualTo(PaymentStatus.NOT_INITIALIZED);
+        Assertions.assertThat(order.getTotalAmount()).isEqualTo(10500L);
+        Assertions.assertThat(response.fullPrice()).isEqualTo(10500L);
+        Assertions.assertThat(response.purchaser()).isEqualTo(userEntity.getEmail());
+        Assertions.assertThat(items).hasSize(2).allSatisfy(item -> {
+            Assertions.assertThat(item.getEvent().getEventId()).isEqualTo(1L);
+            Assertions.assertThat(item.getSeat().getSeatStatus()).isEqualTo(SeatStatus.LOCKED_FOR_CHECKOUT);
+            Assertions.assertThat(item.getPrice()).isEqualTo(item.getSeat().getPrice());
+        });
+        Assertions.assertThat(items).extracting(item -> item.getSeat().getSeatNumber()).containsExactly("S1", "S2");
+        Assertions.assertThat(seatRepository.countByEvent_EventIdAndSeatStatus(1L, SeatStatus.AVAILABLE)).isEqualTo(1);
+        Assertions.assertThat(seatRepository.countByEvent_EventIdAndSeatStatus(2L, SeatStatus.AVAILABLE)).isEqualTo(1);
+        Assertions.assertThat(seatRepository.countByEvent_EventIdAndSeatStatus(3L, SeatStatus.AVAILABLE)).isEqualTo(1);
+    }
+
+    @Test
+    @Sql(scripts = "classpath:scripts/sql/init_event.sql")
+    void shouldNotPersistOrderOrReserveSeatsWhenRequestedQuantityIsUnavailable() {
+        UserEntity userEntity = new UserEntity("test@gmail.com", "Test123", "FirstnameTest", "LastnameTest");
+        userRepository.save(userEntity);
+
+        Assertions.assertThatThrownBy(() -> orderService.createOrder(new OrderRequestDto(1L, 4), userEntity))
+                .isInstanceOf(NoSuchQuantityException.class);
+
+        Assertions.assertThat(orderRepository.count()).isZero();
+        Assertions.assertThat(orderItemRepository.count()).isZero();
+        Assertions.assertThat(seatRepository.findAll()).hasSize(5).allSatisfy(seat ->
+                Assertions.assertThat(seat.getSeatStatus()).isEqualTo(SeatStatus.AVAILABLE));
+    }
+
+    @Test
+    @Sql(scripts = "classpath:scripts/sql/init_event.sql")
+    void shouldNotPersistOrderOrReserveSeatsWhenEventDoesNotExist() {
+        UserEntity userEntity = new UserEntity("test@gmail.com", "Test123", "FirstnameTest", "LastnameTest");
+        userRepository.save(userEntity);
+
+        Assertions.assertThatThrownBy(() -> orderService.createOrder(new OrderRequestDto(999L, 1), userEntity))
+                .isInstanceOf(NoSuchDbRecordException.class)
+                .hasMessageContaining("ID=999");
+
+        Assertions.assertThat(orderRepository.count()).isZero();
+        Assertions.assertThat(orderItemRepository.count()).isZero();
+        Assertions.assertThat(seatRepository.findAll()).hasSize(5).allSatisfy(seat ->
+                Assertions.assertThat(seat.getSeatStatus()).isEqualTo(SeatStatus.AVAILABLE));
     }
 
     @Test
@@ -63,7 +126,7 @@ public class OrderServiceIT extends BaseIT {
 
         CountDownLatch startCountDownLatch = new CountDownLatch(2);
 
-        OrderRequestDto orderRequestDto = new OrderRequestDto(List.of(new TicketRequestDto(1L, 2)));
+        OrderRequestDto orderRequestDto = new OrderRequestDto(1L, 2);
 
 
         try (var executorService = Executors.newVirtualThreadPerTaskExecutor()) {
@@ -122,18 +185,18 @@ public class OrderServiceIT extends BaseIT {
     }
 
     @Test
-    @DisplayName("Should acquire Seat locks in consistent order for concurrent multi-event Orders")
+    @DisplayName("Should create independent Orders concurrently for different Events")
     @Sql(scripts = {
             "classpath:scripts/sql/init_event.sql"
     })
-    void shouldAcquireSeatLocksInConsistentOrderForConcurrentMultiEventOrders() {
+    void shouldCreateIndependentOrdersConcurrentlyForDifferentEvents() {
         UserEntity userEntityA = new UserEntity("test1@gmail.com", "Test123", "FirstnameTest", "LastnameTest");
         UserEntity userEntityB = new UserEntity("test2@gmail.com", "Test123", "FirstnameTest", "LastnameTest");
         userRepository.save(userEntityA);
         userRepository.save(userEntityB);
 
-        OrderRequestDto orderRequestDtoA = new OrderRequestDto(List.of(new TicketRequestDto(2L, 1), new TicketRequestDto(3L, 1)));
-        OrderRequestDto orderRequestDtoB = new OrderRequestDto(List.of(new TicketRequestDto(3L, 1), new TicketRequestDto(2L, 1)));
+        OrderRequestDto orderRequestDtoA = new OrderRequestDto(2L, 1);
+        OrderRequestDto orderRequestDtoB = new OrderRequestDto(3L, 1);
 
         CountDownLatch startCountDownLatch = new CountDownLatch(2);
 
@@ -146,10 +209,10 @@ public class OrderServiceIT extends BaseIT {
             if (!checkIfSuccessfullyCreatedOrder(resultA)) failedOperations++;
             if (!checkIfSuccessfullyCreatedOrder(resultB)) failedOperations++;
 
-            Assertions.assertThat(failedOperations).isEqualTo(1);
+            Assertions.assertThat(failedOperations).isZero();
 
             long count = orderRepository.count();
-            Assertions.assertThat(count).isEqualTo(1);
+            Assertions.assertThat(count).isEqualTo(2);
 
             int reservedSeatForEvent_2 = seatRepository.countByEvent_EventIdAndSeatStatus(2L, SeatStatus.LOCKED_FOR_CHECKOUT);
             int reservedSeatForEvent_3 = seatRepository.countByEvent_EventIdAndSeatStatus(3L, SeatStatus.LOCKED_FOR_CHECKOUT);
@@ -173,7 +236,7 @@ public class OrderServiceIT extends BaseIT {
         UserEntity userEntityA = new UserEntity("test1@gmail.com", "Test123", "FirstnameTest", "LastnameTest");
         userRepository.save(userEntityA);
 
-        OrderRequestDto orderRequestDtoA = new OrderRequestDto(List.of(new TicketRequestDto(eventId, seatsReserve))); // NEW ORDER
+        OrderRequestDto orderRequestDtoA = new OrderRequestDto(eventId, seatsReserve); // NEW ORDER
         OrderResponseDto order = orderService.createOrder(orderRequestDtoA, userEntityA);
 
         OrderEntity resultValidateOrder = null;
@@ -198,7 +261,7 @@ public class OrderServiceIT extends BaseIT {
         UserEntity userEntityA = new UserEntity("test1@gmail.com", "Test123", "FirstnameTest", "LastnameTest");
         userRepository.save(userEntityA);
 
-        OrderRequestDto orderRequestDtoA = new OrderRequestDto(List.of(new TicketRequestDto(eventId, seatsReserve))); // NEW ORDER
+        OrderRequestDto orderRequestDtoA = new OrderRequestDto(eventId, seatsReserve); // NEW ORDER
         OrderResponseDto order = orderService.createOrder(orderRequestDtoA, userEntityA);
         OrderEntity orderEntity = orderRepository.findById(order.orderID()).orElseThrow(() -> new NoSuchDbRecordException("There is no Order with orderId=%s in Test Database".formatted(order.orderID())));
         orderEntity.setExpiresAt(Instant.now().minus(Duration.ofMinutes(30))); // TX
@@ -228,7 +291,7 @@ public class OrderServiceIT extends BaseIT {
         UserEntity userEntityA = new UserEntity("test1@gmail.com", "Test123", "FirstnameTest", "LastnameTest");
         userRepository.save(userEntityA);
 
-        OrderRequestDto orderRequestDtoA = new OrderRequestDto(List.of(new TicketRequestDto(eventId, seatsReserve))); // NEW ORDER
+        OrderRequestDto orderRequestDtoA = new OrderRequestDto(eventId, seatsReserve); // NEW ORDER
         OrderResponseDto order = orderService.createOrder(orderRequestDtoA, userEntityA);
         OrderEntity orderEntity = orderRepository.findById(order.orderID()).orElseThrow(() -> new NoSuchDbRecordException("There is no Order with orderId=%s in Test Database".formatted(order.orderID())));
 
@@ -302,17 +365,17 @@ public class OrderServiceIT extends BaseIT {
         userRepository.save(userEntityB);
         userRepository.save(userEntityC);
 
-        OrderRequestDto orderRequestDtoA = new OrderRequestDto(List.of(new TicketRequestDto(1L, 3))); // NEW ORDER
+        OrderRequestDto orderRequestDtoA = new OrderRequestDto(1L, 3); // NEW ORDER
         OrderResponseDto order1 = orderService.createOrder(orderRequestDtoA, userEntityA);
         OrderEntity reservedOrderEntity1 = orderRepository.findById(order1.orderID()).orElseThrow(() -> new NoSuchDbRecordException("There is no Order with orderId=%s in Test Database".formatted(order1.orderID())));
         reservedOrderEntity1.setExpiresAt(Instant.now().minus(Duration.ofMinutes(30)));
 
-        OrderRequestDto orderRequestDtoB = new OrderRequestDto(List.of(new TicketRequestDto(2L, 1))); // NEW ORDER
+        OrderRequestDto orderRequestDtoB = new OrderRequestDto(2L, 1); // NEW ORDER
         OrderResponseDto order2 = orderService.createOrder(orderRequestDtoB, userEntityB);
         OrderEntity releaseOrderEntity2 = orderRepository.findById(order2.orderID()).orElseThrow(() -> new NoSuchDbRecordException("There is no Order with orderId=%s in Test Database".formatted(order2.orderID())));
         releaseOrderEntity2.setExpiresAt(Instant.now().minus(Duration.ofMinutes(30)));
 
-        OrderRequestDto orderRequestDtoC = new OrderRequestDto(List.of(new TicketRequestDto(3L, 1))); // NEW ORDER
+        OrderRequestDto orderRequestDtoC = new OrderRequestDto(3L, 1); // NEW ORDER
         OrderResponseDto order3 = orderService.createOrder(orderRequestDtoC, userEntityC);
         OrderEntity releaseOrderEntity3 = orderRepository.findById(order3.orderID()).orElseThrow(() -> new NoSuchDbRecordException("There is no Order with orderId=%s in Test Database".formatted(order3.orderID())));
         releaseOrderEntity3.setExpiresAt(Instant.now().minus(Duration.ofMinutes(30)));
@@ -397,7 +460,7 @@ public class OrderServiceIT extends BaseIT {
         UserEntity userEntityA = new UserEntity("test1@gmail.com", "Test123", "FirstnameTest", "LastnameTest");
         userRepository.save(userEntityA);
 
-        OrderRequestDto orderRequestDtoA = new OrderRequestDto(List.of(new TicketRequestDto(eventId, seatsReserve))); // NEW ORDER
+        OrderRequestDto orderRequestDtoA = new OrderRequestDto(eventId, seatsReserve); // NEW ORDER
         OrderResponseDto order = orderService.createOrder(orderRequestDtoA, userEntityA);
         OrderEntity orderEntity = orderRepository.findById(order.orderID()).orElseThrow(() -> new NoSuchDbRecordException("There is no Order with orderId=%s in Test Database".formatted(order.orderID())));
         orderEntity.setExpiresAt(Instant.now().minus(Duration.ofMinutes(30)));
@@ -476,7 +539,7 @@ public class OrderServiceIT extends BaseIT {
         UserEntity userEntityA = new UserEntity("test1@gmail.com", "Test123", "FirstnameTest", "LastnameTest");
         userRepository.save(userEntityA);
 
-        OrderRequestDto orderRequestDtoA = new OrderRequestDto(List.of(new TicketRequestDto(eventId, seatsReserve))); // NEW ORDER
+        OrderRequestDto orderRequestDtoA = new OrderRequestDto(eventId, seatsReserve); // NEW ORDER
         OrderResponseDto order = orderService.createOrder(orderRequestDtoA, userEntityA);
         OrderEntity orderEntity = orderRepository.findById(order.orderID()).orElseThrow(() -> new NoSuchDbRecordException("There is no Order with orderId=%s in Test Database".formatted(order.orderID())));
 
