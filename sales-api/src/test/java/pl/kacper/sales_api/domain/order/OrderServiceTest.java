@@ -15,19 +15,25 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.*;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.CannotAcquireLockException;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.test.util.ReflectionTestUtils;
+import pl.kacper.sales_api.common.exception.NoSuchDbRecordException;
 import pl.kacper.sales_api.common.exception.NoSuchQuantityException;
 import pl.kacper.sales_api.common.exception.paymentException.ExternalPaymentServiceException;
 import pl.kacper.sales_api.common.exception.paymentException.InitializationPaymentException;
 import pl.kacper.sales_api.common.exception.paymentException.PaymentIntentStateMismatchException;
+import pl.kacper.sales_api.domain.event.EventEntity;
 import pl.kacper.sales_api.domain.event.EventRepository;
 import pl.kacper.sales_api.domain.order.dto.OrderPaymentResponseDto;
 import pl.kacper.sales_api.domain.order.dto.OrderRequestDto;
-import pl.kacper.sales_api.domain.order.dto.TicketRequestDto;
+import pl.kacper.sales_api.domain.order.dto.OrderResponseDto;
 import pl.kacper.sales_api.domain.seat.SeatEntity;
 import pl.kacper.sales_api.domain.seat.SeatRepository;
 import pl.kacper.sales_api.domain.seat.SeatStatus;
@@ -67,111 +73,115 @@ public class OrderServiceTest {
     private OrderService orderService;
 
 
-    private List<TicketRequestDto> ticketRequestDtoList;
     private UserEntity userEntity;
 
-    @BeforeEach()
+    @BeforeEach
     void initializeState() {
         userEntity = new UserEntity("mail@gmail.com", "password", "Firstname", "Lastname");
-        ;
-        ticketRequestDtoList = List.of(
-                new TicketRequestDto(1L, 1),
-                new TicketRequestDto(2L, 2),
-                new TicketRequestDto(3L, 3)
-        );
-    }
-
-    @Test
-    @DisplayName("Should reject Order creation when provided Event IDs are invalid or duplicated")
-    void shouldThrowExceptionWhenProvidedEventIdsDoNotMatchExistingEvents() {
-        OrderRequestDto orderRequestDto = new OrderRequestDto(ticketRequestDtoList);
-
-        long eventNumber = Math.max(0, ticketRequestDtoList.size() - 2);
-        Mockito.when(eventRepository.countByEventIdIn(ArgumentMatchers.anyList())).thenReturn(eventNumber);
-
-        Assertions.assertThatThrownBy(() -> orderService.createOrder(orderRequestDto, userEntity))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("Some of the event IDs are incorrect");
-
     }
 
     @Test
     @DisplayName("Should throw UsernameNotFoundException when Order owner does not exist")
     void shouldThrowExceptionWhenOrderOwnerDoesNotExist() {
-        OrderRequestDto orderRequestDto = new OrderRequestDto(ticketRequestDtoList);
-
-        Mockito.when(eventRepository.countByEventIdIn(ArgumentMatchers.anyList())).thenReturn((long) ticketRequestDtoList.size());
+        OrderRequestDto orderRequestDto = new OrderRequestDto(1L, 3);
 
         Mockito.when(userRepository.findUserByEmail(userEntity.getEmail())).thenReturn(Optional.empty());
 
         Assertions.assertThatThrownBy(() -> orderService.createOrder(orderRequestDto, userEntity))
                 .isInstanceOf(UsernameNotFoundException.class);
+
+        Mockito.verifyNoInteractions(seatRepository, eventRepository, orderRepository);
     }
 
-
     @Test
-    @DisplayName("Should throw NoSuchQuantityException when there are not enough available Seats")
-    void shouldThrowExceptionWhenNotEnoughSeatsAreAvailable() {
-        OrderRequestDto orderRequestDto = new OrderRequestDto(ticketRequestDtoList);
-
-        Mockito.when(eventRepository.countByEventIdIn(ArgumentMatchers.anyList())).thenReturn((long) ticketRequestDtoList.size());
+    @DisplayName("Should reject missing Event before fetching or reserving Seats")
+    void shouldThrowExceptionWhenEventDoesNotExist() {
+        OrderRequestDto orderRequestDto = new OrderRequestDto(999L, 1);
 
         Mockito.when(userRepository.findUserByEmail(userEntity.getEmail())).thenReturn(Optional.of(userEntity));
-
-        Mockito.when(seatRepository.findSeatByEventIdWithLocking(ArgumentMatchers.anyLong(), ArgumentMatchers.any(SeatStatus.class), ArgumentMatchers.any()))
-                .thenReturn(Collections.emptyList());
+        Mockito.when(eventRepository.existsById(999L)).thenReturn(false);
 
         Assertions.assertThatThrownBy(() -> orderService.createOrder(orderRequestDto, userEntity))
-                .isInstanceOf(NoSuchQuantityException.class);
+                .isInstanceOf(NoSuchDbRecordException.class)
+                .hasMessageContaining("ID=999");
+
+        Mockito.verify(eventRepository).existsById(999L);
+        Mockito.verifyNoMoreInteractions(eventRepository);
+        Mockito.verifyNoInteractions(seatRepository, orderRepository);
     }
 
-    @Test
-    @DisplayName("Should successfully create a new Order and calculate its total amount")
-    void shouldSuccessfullyCreateOrder() {
-        OrderRequestDto orderRequestDto = new OrderRequestDto(ticketRequestDtoList);
-
-        Mockito.when(eventRepository.countByEventIdIn(ArgumentMatchers.anyList())).thenReturn((long) ticketRequestDtoList.size());
+    @ParameterizedTest
+    @ValueSource(ints = {0, 2})
+    @DisplayName("Should reject Order without changing Seats when requested quantity is unavailable")
+    void shouldThrowExceptionWhenNotEnoughSeatsAreAvailable(int availableSeats) {
+        OrderRequestDto orderRequestDto = new OrderRequestDto(1L, 3);
+        List<SeatEntity> seats = List.of(
+                new SeatEntity(null, null, 400L, SeatStatus.AVAILABLE),
+                new SeatEntity(null, null, 500L, SeatStatus.AVAILABLE)
+        ).subList(0, availableSeats);
 
         Mockito.when(userRepository.findUserByEmail(userEntity.getEmail())).thenReturn(Optional.of(userEntity));
+        Mockito.when(eventRepository.existsById(1L)).thenReturn(true);
+        Mockito.when(seatRepository.findSeatByEventIdWithLocking(1L, SeatStatus.AVAILABLE,
+                PageRequest.of(0, 3, Sort.by("seatId").ascending()))).thenReturn(seats);
 
-        List<SeatEntity> seatEntityListFor1 = List.of(
-                new SeatEntity(null, null, 400L, SeatStatus.AVAILABLE)
-        );
+        Assertions.assertThatThrownBy(() -> orderService.createOrder(orderRequestDto, userEntity))
+                .isInstanceOf(NoSuchQuantityException.class)
+                .hasMessageContaining("event ID=1")
+                .hasMessageContaining("Expected 3 but available " + availableSeats);
 
-        List<SeatEntity> seatEntityListFor2 = List.of(
-                new SeatEntity(null, null, 500L, SeatStatus.AVAILABLE),
-                new SeatEntity(null, null, 600L, SeatStatus.AVAILABLE)
-        );
+        Assertions.assertThat(seats).allSatisfy(seat ->
+                Assertions.assertThat(seat.getSeatStatus()).isEqualTo(SeatStatus.AVAILABLE));
+        Mockito.verify(eventRepository).existsById(1L);
+        Mockito.verifyNoMoreInteractions(eventRepository);
+        Mockito.verifyNoInteractions(orderRepository);
+    }
 
-        List<SeatEntity> seatEntityListFor3 = List.of(
-                new SeatEntity(null, null, 700L, SeatStatus.AVAILABLE),
-                new SeatEntity(null, null, 800L, SeatStatus.AVAILABLE),
-                new SeatEntity(null, null, 900L, SeatStatus.AVAILABLE)
-        );
+    @ParameterizedTest
+    @ValueSource(ints = {1, 3})
+    @DisplayName("Should create Order with requested quantity of Seats from a single Event")
+    void shouldSuccessfullyCreateOrder(int quantity) {
+        Long eventId = 7L;
+        OrderRequestDto orderRequestDto = new OrderRequestDto(eventId, quantity);
+        EventEntity eventEntity = new EventEntity();
+        List<SeatEntity> seats = List.of(
+                new SeatEntity(eventEntity, null, 400L, SeatStatus.AVAILABLE),
+                new SeatEntity(eventEntity, null, 500L, SeatStatus.AVAILABLE),
+                new SeatEntity(eventEntity, null, 600L, SeatStatus.AVAILABLE)
+        ).subList(0, quantity);
 
-        Mockito.when(seatRepository.findSeatByEventIdWithLocking(ArgumentMatchers.eq(1L), ArgumentMatchers.eq(SeatStatus.AVAILABLE), ArgumentMatchers.any()))
-                .thenReturn(seatEntityListFor1);
+        Mockito.when(userRepository.findUserByEmail(userEntity.getEmail())).thenReturn(Optional.of(userEntity));
+        Mockito.when(eventRepository.existsById(eventId)).thenReturn(true);
+        Mockito.when(eventRepository.getReferenceById(eventId)).thenReturn(eventEntity);
+        Mockito.when(seatRepository.findSeatByEventIdWithLocking(eventId, SeatStatus.AVAILABLE,
+                PageRequest.of(0, quantity, Sort.by("seatId").ascending()))).thenReturn(seats);
 
-        Mockito.when(seatRepository.findSeatByEventIdWithLocking(ArgumentMatchers.eq(2L), ArgumentMatchers.eq(SeatStatus.AVAILABLE), ArgumentMatchers.any()))
-                .thenReturn(seatEntityListFor2);
-
-        Mockito.when(seatRepository.findSeatByEventIdWithLocking(ArgumentMatchers.eq(3L), ArgumentMatchers.eq(SeatStatus.AVAILABLE), ArgumentMatchers.any()))
-                .thenReturn(seatEntityListFor3);
-
-        orderService.createOrder(orderRequestDto, userEntity);
+        OrderResponseDto response = orderService.createOrder(orderRequestDto, userEntity);
 
         ArgumentCaptor<OrderEntity> orderEntityArgumentCaptor = ArgumentCaptor.forClass(OrderEntity.class);
-        Mockito.verify(orderRepository, Mockito.times(1)).save(orderEntityArgumentCaptor.capture());
+        Mockito.verify(orderRepository).save(orderEntityArgumentCaptor.capture());
+        Mockito.verify(seatRepository).findSeatByEventIdWithLocking(eventId, SeatStatus.AVAILABLE,
+                PageRequest.of(0, quantity, Sort.by("seatId").ascending()));
+        Mockito.verifyNoMoreInteractions(seatRepository);
 
-        OrderEntity orderEntity = orderEntityArgumentCaptor.getValue();
+        OrderEntity order = orderEntityArgumentCaptor.getValue();
+        long fullPrice = seats.stream().mapToLong(SeatEntity::getPrice).sum();
 
-        ArrayList<SeatEntity> allSeatEntities = new ArrayList<>();
-        allSeatEntities.addAll(seatEntityListFor1);
-        allSeatEntities.addAll(seatEntityListFor2);
-        allSeatEntities.addAll(seatEntityListFor3);
-        long fullPrice = allSeatEntities.stream().mapToLong(SeatEntity::getPrice).sum();
-
-        Assertions.assertThat(orderEntity.getTotalAmount()).isEqualTo(fullPrice);
+        Assertions.assertThat(order.getTotalAmount()).isEqualTo(fullPrice);
+        Assertions.assertThat(order.getPurchaser()).isSameAs(userEntity);
+        Assertions.assertThat(order.getOrderStatus()).isEqualTo(OrderStatus.PENDING);
+        Assertions.assertThat(order.getPaymentStatus()).isEqualTo(PaymentStatus.NOT_INITIALIZED);
+        Assertions.assertThat(order.getOrderItemList()).hasSize(quantity).allSatisfy(item -> {
+            Assertions.assertThat(item.getEvent()).isSameAs(eventEntity);
+            Assertions.assertThat(item.getOrder()).isSameAs(order);
+            Assertions.assertThat(item.getPrice()).isEqualTo(item.getSeat().getPrice());
+            Assertions.assertThat(item.getSeat().getSeatStatus()).isEqualTo(SeatStatus.LOCKED_FOR_CHECKOUT);
+        });
+        Assertions.assertThat(order.getOrderItemList()).extracting(OrderItemEntity::getSeat)
+                .containsExactlyElementsOf(seats);
+        Assertions.assertThat(response.fullPrice()).isEqualTo(fullPrice);
+        Assertions.assertThat(response.purchaser()).isEqualTo(userEntity.getEmail());
+        Assertions.assertThat(response.orderStatus()).isEqualTo(OrderStatus.PENDING);
     }
 
     @Test

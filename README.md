@@ -19,7 +19,7 @@ Backend portfolio project for event management, seat inventory, orders, payments
 | Asynchronous seat generation | RabbitMQ consumer |
 | Reliable publishing | Transactional outbox, confirms, returns and scheduled recovery |
 | Consumer reliability | Database deduplication, bounded retries and DLQ |
-| Order creation | Concurrent seat locking and deterministic event lock ordering |
+| Order creation | One event per order, multiple seats and concurrent seat locking |
 | Order expiration | Scheduled cleanup and immediate checks during payment initialization |
 | Stripe PaymentIntent initialization | Create/retrieve with deterministic idempotency keys |
 | Stripe webhooks | Signature verification, transactional inbox and state validation |
@@ -95,7 +95,20 @@ Outbox records progress through `PENDING → PROCESSING → SENT`, with retry or
 
 ### Checkout and order lifecycle
 
-An authenticated user creates an order containing event IDs and requested quantities. The application sorts event requests, locks available seats using `SKIP LOCKED`, creates order items and calculates the total amount from seat prices.
+An authenticated user creates an order for exactly one event. The request to `POST /api/v1/order` contains a required `eventId` and a `quantity` between 1 and 1000:
+
+```json
+{
+  "eventId": 1,
+  "quantity": 3
+}
+```
+
+This replaces the previous `tickets` array. Multiple tickets for the same event are supported; tickets for different events require separate orders. API clients must use the new request shape.
+
+The application verifies that the event exists, then selects available seats for that event in ascending `seatId` order using pessimistic locking with `SKIP LOCKED`. It creates one order item per selected seat and calculates the total amount from their prices. Order creation and seat reservation run in one database transaction.
+
+A missing event raises `NoSuchDbRecordException` before seats are queried. If fewer unlocked, available seats can be selected than requested, `NoSuchQuantityException` rejects the order without persisting an order or changing seat statuses.
 
 ```text
 New order: PENDING / NOT_INITIALIZED
@@ -222,7 +235,7 @@ refund.failed can also change REFUNDED → REFUND_FAILED and clear refundedAt.
 
 | Concern | Current approach |
 |---|---|
-| Concurrent checkout | Pessimistic seat locks and deterministic event ordering |
+| Concurrent checkout | Pessimistic seat locks with `SKIP LOCKED`, scoped to one event and ordered by `seatId` |
 | Expiration versus payment outcome | Order lock, persisted order state and shared seat lifecycle |
 | External payment calls | Separate database transactions before and after the call |
 | Duplicate webhook | Event-ID primary key and atomic inbox claim |
@@ -255,7 +268,7 @@ Known limitations and follow-up work:
 | GET | `/api/v1/event` | Public | Catalog with `city` and `page` filters |
 | GET | `/api/v1/event/{eventID}` | Public | Event details and available-seat count |
 | POST | `/api/v1/admin/event` | ADMIN | Create event and schedule seat generation |
-| POST | `/api/v1/order` | Authenticated | Create order |
+| POST | `/api/v1/order` | Authenticated | Create order for one event using `eventId` and `quantity` |
 | POST | `/api/v1/order/{order_id}/payment-intent` | Order owner | Initialize/retrieve payment |
 | POST | `/api/v1/webhooks/stripe` | Stripe signature | Process supported Stripe events |
 
@@ -278,7 +291,7 @@ From `fulfillment-worker/`:
 
 Integration tests require a running Docker daemon and start isolated PostgreSQL/RabbitMQ containers. The `test` profile disables scheduled scanners. Stripe API calls are mocked in automated payment/refund orchestration tests; webhook HTTP tests construct signed payloads.
 
-Sales API coverage includes state matrices, inbox commit/rollback, duplicate and concurrent event delivery, missing local IDs and subsequent retry, order locking, refund candidate selection, refund TX2 persistence and lock failure, successful refund orchestration with request-argument assertions, and the atomic successful-payment path that persists a complete fulfillment payload in the outbox.
+Sales API coverage includes single-event checkout, request validation, missing events, insufficient seats, concurrent checkout for the same and different events, state matrices, inbox commit/rollback, duplicate and concurrent event delivery, missing local IDs and subsequent retry, order locking, refund candidate selection, refund TX2 persistence and lock failure, successful refund orchestration with request-argument assertions, and the atomic successful-payment path that persists a complete fulfillment payload in the outbox.
 
 Worker coverage includes message-contract resolution, payload validation, duplicate order-item detection, atomic inbox/order/ticket persistence, sequential and concurrent redelivery, successful AMQP consumption, retry followed by recovery, immediate rejection of permanent routing failures and dead-lettering after exhausted retries.
 

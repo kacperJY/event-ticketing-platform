@@ -19,7 +19,6 @@ import pl.kacper.sales_api.domain.message.property.OperationType;
 import pl.kacper.sales_api.domain.order.*;
 import pl.kacper.sales_api.domain.order.dto.OrderRequestDto;
 import pl.kacper.sales_api.domain.order.dto.OrderResponseDto;
-import pl.kacper.sales_api.domain.order.dto.TicketRequestDto;
 import pl.kacper.sales_api.domain.seat.SeatEntity;
 import pl.kacper.sales_api.domain.seat.SeatRepository;
 import pl.kacper.sales_api.domain.seat.SeatStatus;
@@ -83,9 +82,7 @@ public class StripeTransactionServiceIT extends BaseIT {
         UserEntity userEntity = new UserEntity("mail@test.pl", "TestPass", "TestFirstname", "TestLastname");
         userRepository.save(userEntity);
 
-        OrderRequestDto orderRequestDto = new OrderRequestDto(
-                List.of(new TicketRequestDto(eventId, seatReservedNumber))
-        );
+        OrderRequestDto orderRequestDto = new OrderRequestDto(eventId, seatReservedNumber);
 
         OrderResponseDto orderResponseDto = orderService.createOrder(orderRequestDto, userEntity);
 
@@ -139,9 +136,7 @@ public class StripeTransactionServiceIT extends BaseIT {
         UserEntity userEntity = new UserEntity("mail@test.pl", "TestPass", "TestFirstname", "TestLastname");
         userRepository.save(userEntity);
 
-        OrderRequestDto orderRequestDto = new OrderRequestDto(
-                List.of(new TicketRequestDto(1L, 3))
-        );
+        OrderRequestDto orderRequestDto = new OrderRequestDto(1L, 3);
 
         OrderResponseDto orderResponseDto = orderService.createOrder(orderRequestDto, userEntity);
 
@@ -212,9 +207,7 @@ public class StripeTransactionServiceIT extends BaseIT {
         UserEntity userEntity = new UserEntity("mail@test.pl", "TestPass", "TestFirstname", "TestLastname");
         userRepository.save(userEntity);
 
-        OrderRequestDto orderRequestDto = new OrderRequestDto(
-                List.of(new TicketRequestDto(1L, 3))
-        );
+        OrderRequestDto orderRequestDto = new OrderRequestDto(1L, 3);
 
         OrderResponseDto orderResponseDto = orderService.createOrder(orderRequestDto, userEntity);
 
@@ -265,9 +258,7 @@ public class StripeTransactionServiceIT extends BaseIT {
         UserEntity userEntity = new UserEntity("mail@test.pl", "TestPass", "TestFirstname", "TestLastname");
         userRepository.save(userEntity);
 
-        OrderRequestDto orderRequestDto = new OrderRequestDto(
-                List.of(new TicketRequestDto(1L, 3))
-        );
+        OrderRequestDto orderRequestDto = new OrderRequestDto(1L, 3);
 
         OrderResponseDto orderResponseDto = orderService.createOrder(orderRequestDto, userEntity);
 
@@ -338,9 +329,7 @@ public class StripeTransactionServiceIT extends BaseIT {
         UserEntity userEntity = new UserEntity("mail@test.pl", "TestPass", "TestFirstname", "TestLastname");
         userRepository.save(userEntity);
 
-        OrderRequestDto orderRequestDto = new OrderRequestDto(
-                List.of(new TicketRequestDto(1L, 3))
-        );
+        OrderRequestDto orderRequestDto = new OrderRequestDto(1L, 3);
 
         OrderResponseDto orderResponseDto = orderService.createOrder(orderRequestDto, userEntity);
 
@@ -390,9 +379,7 @@ public class StripeTransactionServiceIT extends BaseIT {
         UserEntity userEntity = new UserEntity("mail@test.pl", "TestPass", "TestFirstname", "TestLastname");
         userRepository.save(userEntity);
 
-        OrderRequestDto orderRequestDto = new OrderRequestDto(
-                List.of(new TicketRequestDto(1L, 3))
-        );
+        OrderRequestDto orderRequestDto = new OrderRequestDto(1L, 3);
 
         OrderResponseDto orderResponseDto = orderService.createOrder(orderRequestDto, userEntity);
 
@@ -469,9 +456,7 @@ public class StripeTransactionServiceIT extends BaseIT {
         UserEntity userEntity = new UserEntity("mail@test.pl", "TestPass", "TestFirstname", "TestLastname");
         userRepository.save(userEntity);
 
-        OrderRequestDto orderRequestDto = new OrderRequestDto(
-                List.of(new TicketRequestDto(1L, 3))
-        );
+        OrderRequestDto orderRequestDto = new OrderRequestDto(1L, 3);
 
         OrderResponseDto orderResponseDto = orderService.createOrder(orderRequestDto, userEntity);
 
@@ -564,9 +549,7 @@ public class StripeTransactionServiceIT extends BaseIT {
         UserEntity userEntity = new UserEntity("mail@test.pl", "TestPass", "TestFirstname", "TestLastname");
         userRepository.save(userEntity);
 
-        OrderRequestDto orderRequestDto = new OrderRequestDto(
-                List.of(new TicketRequestDto(1L, 3))
-        );
+        OrderRequestDto orderRequestDto = new OrderRequestDto(1L, 3);
 
         OrderResponseDto orderResponseDto = orderService.createOrder(orderRequestDto, userEntity);
 
@@ -661,9 +644,7 @@ public class StripeTransactionServiceIT extends BaseIT {
         UserEntity userEntity = new UserEntity("mail@test.pl", "TestPass", "TestFirstname", "TestLastname");
         userRepository.save(userEntity);
 
-        OrderRequestDto orderRequestDto = new OrderRequestDto(
-                List.of(new TicketRequestDto(1L, 3))
-        );
+        OrderRequestDto orderRequestDto = new OrderRequestDto(1L, 3);
 
         OrderResponseDto orderResponseDto = orderService.createOrder(orderRequestDto, userEntity);
 
@@ -748,9 +729,7 @@ public class StripeTransactionServiceIT extends BaseIT {
         UserEntity userEntity = new UserEntity("mail@test.pl", "TestPass", "TestFirstname", "TestLastname");
         userRepository.save(userEntity);
 
-        OrderRequestDto orderRequestDto = new OrderRequestDto(
-                List.of(new TicketRequestDto(1L, 3))
-        );
+        OrderRequestDto orderRequestDto = new OrderRequestDto(1L, 3);
 
         OrderResponseDto orderResponseDto = orderService.createOrder(orderRequestDto, userEntity);
 
@@ -856,9 +835,7 @@ public class StripeTransactionServiceIT extends BaseIT {
         UserEntity userEntity = new UserEntity("mail@test.pl", "TestPass", "TestFirstname", "TestLastname");
         userRepository.save(userEntity);
 
-        OrderRequestDto orderRequestDto = new OrderRequestDto(
-                List.of(new TicketRequestDto(eventId, seatReservedNumber))
-        );
+        OrderRequestDto orderRequestDto = new OrderRequestDto(eventId, seatReservedNumber);
 
         OrderResponseDto orderResponseDto = orderService.createOrder(orderRequestDto, userEntity);
 
@@ -986,7 +963,7 @@ public class StripeTransactionServiceIT extends BaseIT {
 
         final Long eventId = 1L;
         final int seatReservedCount = 3;
-        OrderRequestDto orderRequestDto = new OrderRequestDto(List.of(new TicketRequestDto(eventId, seatReservedCount)));
+        OrderRequestDto orderRequestDto = new OrderRequestDto(eventId, seatReservedCount);
         OrderResponseDto orderResponseDto = orderService.createOrder(orderRequestDto, userEntity);
         UUID orderId = orderResponseDto.orderID();
 
