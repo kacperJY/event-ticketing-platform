@@ -11,9 +11,6 @@ on:
 jobs:
   verify:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: sales-api
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -27,7 +24,11 @@ jobs:
           architecture: x64
           cache: maven
           cache-dependency-path: sales-api/pom.xml
-      - name: Verify project
+      - name: Verify sales-api
+        working-directory: sales-api
+        run: ./mvnw --batch-mode --no-transfer-progress verify
+      - name: Verify fulfillment-worker
+        working-directory: fulfillment-worker
         run: ./mvnw --batch-mode --no-transfer-progress verify
 
 
