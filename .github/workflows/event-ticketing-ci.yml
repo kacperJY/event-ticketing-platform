@@ -1,4 +1,4 @@
-name: Sales API CI
+name: Event Ticketing CI
 on:
   pull_request:
     branches:
