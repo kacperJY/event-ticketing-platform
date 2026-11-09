@@ -52,7 +52,7 @@ public interface FulfillmentOrderRepository extends CrudRepository<FulfillmentOr
                        foe.createdAt asc,
                        foe.sourceOrderId asc
 
-            """
+            """)
     List<FulfillmentOrderEntity> findOrderCandidatesForProcessingWithSkipLocked(
             @Param("readyAttemptDate")Instant readyAttemptDate,
             @Param("outdated") Instant outdated,
