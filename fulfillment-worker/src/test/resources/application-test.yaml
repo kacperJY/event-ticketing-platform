@@ -11,3 +11,6 @@ spring:
     publisher-returns: true
     template:
       mandatory: true
+
+mail-config:
+  from: test@gmail.com
