@@ -18,3 +18,5 @@ Thumbs.db
 
 # locals
 sales-api/local.secrets.properties
+local.environments.properties
+fulfillment-worker/SCHEDULER-CONTRACT-COMPLETION-ORDER

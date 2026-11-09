@@ -67,9 +67,10 @@ class PDFGeneratorTest {
         );
 
         try {
-            Path pdfPath = pdfGenerator.generateTicketPdf(completedOrderPdfPayload, tempDirectory);
+            Path finalPath = tempDirectory.resolve(completedOrderPdfPayload.orderId() + "::" + completedOrderPdfPayload.paidAt() + "-" + 0);
+            pdfGenerator.generateTicketPdf(completedOrderPdfPayload, finalPath);
             try (
-                    PdfReader pdfReader = new PdfReader(pdfPath.toAbsolutePath().toString());
+                    PdfReader pdfReader = new PdfReader(finalPath.toAbsolutePath().toString());
                     PdfDocument pdfDocument = new PdfDocument(pdfReader);
             ) {
 

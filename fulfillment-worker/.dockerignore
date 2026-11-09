@@ -6,3 +6,5 @@
 rabbitmq
 rabbitmq.example
 local.secrets.properties
+
+local.environments.properties

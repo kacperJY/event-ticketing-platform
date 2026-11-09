@@ -15,3 +15,15 @@ spring:
     password: ${RABBITMQ_DEFAULT_PASS}
     port: ${RABBITMQ_NODE_PORT}
     host: ${RABBITMQ_HOST}
+
+  mail:
+    username: ${SMTP_USERNAME}
+    password: ${SMTP_PASSWORD}
+    port: ${SMTP_PORT}
+    host: ${SMTP_HOST}
+
+mail-config:
+  from: ${MAIL_FROM}
+
+order-completion:
+  pdf-files-path: /opt/ticketing/pdfs/

@@ -1,17 +1,24 @@
 package pl.kacper.fulfillment_worker;
 
 import org.junit.jupiter.api.AfterEach;
+import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.jdbc.JdbcTestUtils;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 @ActiveProfiles("test")
+@TestPropertySource(properties = "order-completion.pdf-files-path=${java.io.tmpdir}/ticketing-completion-it")
 @SpringBootTest(properties = "spring.rabbitmq.listener.simple.auto-startup=false")
 public class BaseIT {
+
+    @MockitoBean
+    protected JavaMailSender mailSender;
 
     @ServiceConnection
     private static final PostgreSQLContainer postgreSQLContainer;
