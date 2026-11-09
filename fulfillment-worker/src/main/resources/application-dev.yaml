@@ -1,4 +1,7 @@
 spring:
+  config:
+    import: file:local.environments.properties
+
   datasource:
     url: jdbc:postgresql://localhost:5433/event-ticketing-platform-fulfillment-worker-db
     username: admin
