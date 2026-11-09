@@ -1,6 +1,6 @@
 # 🎫 Event Ticketing Platform
 
-![Status](https://img.shields.io/badge/status-ticket_PDF_generation_complete-brightgreen)
+![Status](https://img.shields.io/badge/status-core_project_complete-brightgreen)
 ![Java](https://img.shields.io/badge/Java-25-blue)
 ![Spring Boot](https://img.shields.io/badge/Spring_Boot-4.1-brightgreen)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-17-4169E1)
@@ -8,7 +8,7 @@
 
 Backend portfolio project for event management, seat inventory, orders, payments and refunds. The project focuses on concurrency, transaction boundaries, reliable messaging and integration with an external payment provider.
 
-> **Current milestone:** the Sales API implements checkout, order expiration, Stripe PaymentIntent initialization, signed webhooks, automatic refunds for late payments and reliable publication of successfully paid orders. The worker consumes the versioned fulfillment contract through RabbitMQ and atomically persists its inbox claim, fulfillment order and complete ticket set. It can generate one PDF per order with a separate page for each ticket. Email delivery and scheduled fulfillment processing remain the next stage.
+> **Project status:** the planned end-to-end flow is complete. The Sales API handles checkout, payment, refunds and reliable publication of paid orders. The worker consumes each completed order, persists its own tickets, then schedules PDF generation and email delivery with bounded retries. Further work is maintenance and optional improvements.
 
 ## Current scope
 
@@ -30,9 +30,9 @@ Backend portfolio project for event management, seat inventory, orders, payments
 | Paid-order publication for fulfillment | Transactional outbox with one versioned message per completed order |
 | Fulfillment worker | RabbitMQ consumer, contract validation, transactional inbox and owned persistence |
 | Ticket ownership and deduplication | One worker-owned ticket per source order item, protected by inbox and database constraints |
-| Ticket PDF generation | Implemented as a standalone worker component; one page per ticket |
-| Email delivery and fulfillment scheduler | Planned |
-| OpenAPI documentation | Planned |
+| Ticket PDF generation | One PDF per order, one page per ticket, generated for each delivery attempt |
+| Email delivery and fulfillment scheduler | Implemented with bounded concurrency, retry and orphan recovery |
+| OpenAPI documentation | Future improvement |
 
 ## Architecture
 
@@ -53,15 +53,17 @@ Client ──HTTP/JWT──> Sales API
                              └── completed-order queue → Fulfillment Worker
                                                            |── contract and payload validation
                                                            |── retry → DLQ for permanent/exhausted failures
-                                                           └── separate PostgreSQL: atomic consumer transaction
-                                                                 |── processed_messages claim
-                                                                 |── fulfillment_orders
-                                                                 └── tickets
+                                                           |── separate PostgreSQL: atomic consumer transaction
+                                                           |     |── processed_messages claim
+                                                           |     |── fulfillment_orders
+                                                           |     └── tickets
+                                                           └── fulfillment scheduler → PDF → SMTP email
 
 Successful payment transaction:
 order + seats + Stripe inbox + fulfillment outbox → commit
   → existing outbox publisher with retry → completed-order queue
   → worker inbox + fulfillment order + complete ticket set → commit → ACK
+  → scheduled claim → PDF per attempt → email attachment → SENT or retry/FAILED
 ```
 
 ```text
@@ -82,7 +84,7 @@ The Sales API groups code by domain. Orchestration services coordinate external 
 
 ### Event creation and seat generation
 
-The administrator creates an event through `POST /api/v1/admin/event`. The event and an outbox message are saved in one transaction. After commit, the application attempts publication; a scheduled scanner provides fallback delivery and recovery of stale processing records.
+The administrator creates an event through `POST /api/v1/admin/event`. The event and an outbox message are saved in one transaction. After commit, the application attempts publication; a scheduled scanner provides fallback delivery and recovery of stale processing records. New seats currently receive the fixed prefix `SEAT` (`SEAT - 1`, `SEAT - 2`, and so on); event-specific prefixes are a possible future improvement.
 
 ```text
 Event + Outbox(PENDING) → commit → publish → broker confirm/return
@@ -198,7 +200,7 @@ The consumer transaction inserts `(consumerName, messageId)` into `processed_mes
 
 Both applications declare the same durable main exchange, dead-letter exchange, completed-order queue and binding with identical arguments. This lets either application start first. The worker alone declares and binds its completed-order DLQ.
 
-RabbitMQ confirmation proves that the broker accepted the message. The committed worker transaction proves that its fulfillment order and tickets were persisted. The standalone PDF generator can create a document from worker-owned ticket data, but neither broker confirmation nor the consumer transaction proves that a PDF was generated or an email delivered. Delivery orchestration remains separate and must also be retryable.
+RabbitMQ confirmation proves that the broker accepted the message. The committed worker consumer transaction proves that its fulfillment order and tickets were persisted. A separate scheduler claims persisted orders and performs PDF generation and SMTP delivery; `SENT` records successful completion of that delivery step. Broker acknowledgement alone does not imply that the email was sent.
 
 ### Automatic refunds
 
@@ -246,6 +248,8 @@ refund.failed can also change REFUNDED → REFUND_FAILED and clear refundedAt.
 | Invalid or repeatedly failing fulfillment message | Permanent contract failures and exhausted retries are rejected to the worker DLQ |
 | Publisher failure | Outbox retries and stale-processing recovery |
 | Order completion versus fulfillment publication | Order transition, Stripe inbox and fulfillment outbox commit together |
+| Ticket delivery | Bounded scheduler concurrency, database claims with `SKIP LOCKED`, separate state-update transactions and retry after failures |
+| Interrupted delivery | Stale `PROCESSING` records become eligible for another attempt after the orphan timeout |
 
 Stripe may deliver events out of order and retry failed deliveries. Delivery and idempotency retention are finite; a deterministic key is not an indefinite recovery mechanism. See [Stripe webhooks](https://docs.stripe.com/webhooks) and [idempotent requests](https://docs.stripe.com/api/idempotent_requests).
 
@@ -257,7 +261,8 @@ Known limitations and follow-up work:
 - `requires_action`, manually created refunds and partial/multiple-refund workflows are outside the current application contract.
 - A late failed refund is handled through `refund.failed`; subscribe to all six supported events. `created`/`updated` with `failed` do not themselves reverse local `REFUNDED`.
 - Automated coordinator coverage currently verifies successful TX1 → CREATE → TX2 orchestration. A failed TX2 followed by a coordinator rerun remains a useful additional recovery test.
-- The worker can generate a PDF from ticket data, but automatic PDF generation, email delivery and scheduled retries are not implemented yet.
+- SMTP acceptance and a committed `SENT` status do not prove delivery to the recipient's inbox. If sending succeeds but the status update fails, a later retry may send a duplicate email.
+- A sudden process/container exit or failed file deletion can leave a generated PDF on disk; there is no periodic cleanup of such stale files.
 - There is no reconciliation or backfill flow for orders completed before fulfillment publication was introduced.
 
 ## API overview
@@ -294,7 +299,7 @@ Integration tests require a running Docker daemon and start isolated PostgreSQL/
 
 Sales API coverage includes single-event checkout, request validation, missing events, insufficient seats, concurrent checkout for the same and different events, state matrices, inbox commit/rollback, duplicate and concurrent event delivery, missing local IDs and subsequent retry, order locking, refund candidate selection, refund TX2 persistence and lock failure, successful refund orchestration with request-argument assertions, and the atomic successful-payment path that persists a complete fulfillment payload in the outbox.
 
-Worker coverage includes message-contract resolution, payload validation, duplicate order-item detection, atomic inbox/order/ticket persistence, sequential and concurrent redelivery, successful AMQP consumption, retry followed by recovery, immediate rejection of permanent routing failures, dead-lettering after exhausted retries, and PDF generation with one page and the correct order and ticket IDs per item.
+Worker coverage includes message-contract resolution, payload validation, duplicate order-item detection, atomic inbox/order/ticket persistence, sequential and concurrent redelivery, successful AMQP consumption, retry followed by recovery, immediate rejection of permanent routing failures, dead-lettering after exhausted retries, PDF generation with one page and the correct order and ticket IDs per item, fulfillment state transitions, successful delivery with a PDF attachment, mail/PDF failures and recovery of stale processing after a failed status update. Automated mail tests use a mocked sender; the local end-to-end flow was also checked with the configured SMTP service.
 
 Testcontainers and Compose both pin PostgreSQL to `postgres:17.10` and RabbitMQ to `rabbitmq:4.3.2-management`.
 
@@ -319,6 +324,7 @@ The files have separate responsibilities:
 - `sales_api.env` contains variables injected into the Sales API container in the `prod` profile.
 - `fulfillment_worker.env` contains variables injected into the worker container in the `prod` profile.
 - `rabbitmq` is mounted into the broker container as its configuration file.
+- `fulfillment-worker/local.environments.properties` contains the worker's local SMTP settings for the `dev` profile.
 
 For DEV, fill the infrastructure credentials in `.env` to match both applications' `application-dev.yaml` files:
 
@@ -371,7 +377,13 @@ local.stripe.webhook.secret=<whsec_... printed by stripe listen>
 
 The webhook property name intentionally matches the existing DEV configuration. The CLI signing secret is distinct from the API key and from a Dashboard endpoint's signing secret. Restart the application after changing this file.
 
-The DEV JVM does not automatically load `.env`, `sales_api.env` or `fulfillment_worker.env`. The Sales API reads `local.secrets.properties` and `application-dev.yaml`; the worker reads its own `application-dev.yaml`. The secret file is excluded from Git and the Sales API Docker build context.
+The DEV JVM does not automatically load `.env`, `sales_api.env` or `fulfillment_worker.env`. The Sales API reads `local.secrets.properties` and `application-dev.yaml`. The worker's `application-dev.yaml` imports `local.environments.properties` from the `fulfillment-worker/` working directory. Create it from the example and fill in the SMTP host, port, username, app password and sender address before starting the worker:
+
+```bash
+cp fulfillment-worker/local.environments.example.properties fulfillment-worker/local.environments.properties
+```
+
+These local credentials are excluded from Git and the Docker build contexts. For a Gmail account using an app password, use its authenticated SMTP endpoint with STARTTLS on port 587. The sender address should match an address authorized by the SMTP account.
 
 Start the application from `sales-api/`:
 
@@ -385,7 +397,7 @@ To validate the worker locally, start it separately from `fulfillment-worker/`:
 ./mvnw spring-boot:run -Dspring-boot.run.profiles=dev
 ```
 
-The worker is a long-running RabbitMQ consumer. On startup it migrates and validates its database, declares the shared completed-order topology and its own DLQ, then waits for paid-order messages.
+The worker is a long-running RabbitMQ consumer and fulfillment scheduler. On startup it migrates and validates its database, declares the shared completed-order topology and its own DLQ, prepares the PDF directory, then consumes paid-order messages and scans persisted fulfillment orders for delivery.
 
 The completed-order queue now has dead-letter exchange arguments. If a local broker volume contains an older queue created without these arguments, RabbitMQ rejects the incompatible redeclaration with `PRECONDITION_FAILED`. Delete that queue once through the management UI or recreate the local broker volume before starting the updated applications.
 
@@ -420,7 +432,7 @@ A succeeded PaymentIntent cannot be canceled. For the automatic refund scenario,
 
 Generic `stripe trigger` fixtures create independent test objects and do not automatically target your order. Creating a refund manually also bypasses the scheduler's local linking transaction, so it is not equivalent to testing the complete application refund flow.
 
-For the fulfillment flow, confirm an application-created PaymentIntent belonging to a non-expired order. After the `payment_intent.succeeded` webhook completes, the Sales API should mark the order `COMPLETED / SUCCEEDED`, save and publish one outbox record, and the worker should persist one inbox claim, one fulfillment order and one ticket for every source order item. The completed-order queue and worker DLQ should both be empty after successful processing.
+For the fulfillment flow, confirm an application-created PaymentIntent belonging to a non-expired order. After the `payment_intent.succeeded` webhook completes, the Sales API should mark the order `COMPLETED / SUCCEEDED`, save and publish one outbox record, and the worker should persist one inbox claim, one fulfillment order and one ticket for every source order item. The worker scheduler should then move the fulfillment order to `SENT` and send one email with a PDF attachment containing a separate page for each ticket. The completed-order queue and worker DLQ should both be empty after successful processing.
 
 ## Production-style local Docker runtime
 
@@ -457,7 +469,8 @@ This file is injected only into the Sales API container:
 This file is injected only into the worker container:
 
 - `DB_URL`, `DB_USER`, `DB_PASSWORD`,
-- `RABBITMQ_DEFAULT_USER`, `RABBITMQ_DEFAULT_PASS`, `RABBITMQ_HOST`.
+- `RABBITMQ_DEFAULT_USER`, `RABBITMQ_DEFAULT_PASS`, `RABBITMQ_HOST`,
+- `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `MAIL_FROM`.
 
 For each application, `DB_USER` and `DB_PASSWORD` must match the corresponding PostgreSQL initialization credentials from `.env`. RabbitMQ credentials must match in all three files. The example JDBC URLs and broker hostnames use Compose service names and should remain unchanged for the container runtime.
 
@@ -482,7 +495,7 @@ docker compose --profile prod up -d --force-recreate event-ticketing-platform-sa
 docker compose --profile prod up -d --force-recreate event-ticketing-platform-fulfillment-worker
 ```
 
-The worker container remains active as the completed-order consumer. It can start before or after the Sales API because both applications declare the same shared exchange, source queue and binding. The worker additionally owns the DLQ and its separate PostgreSQL schema.
+The worker container remains active as the completed-order consumer and delivery scheduler. It can start before or after the Sales API because both applications declare the same shared exchange, source queue and binding. The worker additionally owns the DLQ and its separate PostgreSQL schema. It writes PDFs to `/opt/ticketing/pdfs/` inside the container and normally deletes each file after its delivery attempt. Compose does not mount this directory as a persistent volume.
 
 Use one runtime profile at a time because both share service names, ports and volumes. Stop the selected stack with `docker compose --profile dev down` or `docker compose --profile prod down`. Adding `-v` removes its persistent data.
 
@@ -494,11 +507,11 @@ Flyway applies migrations and Hibernate validates each application's schema. In 
 
 **V1–V5 are the established migration history after this milestone. Do not edit or replace them.** Future schema or data changes belong in V6 and subsequent migrations. An existing database must have a compatible migration history; the automated suite verifies migration of a fresh database, not every historical development database.
 
-The worker owns an independent Flyway history in its own database. Its V1 creates `processed_messages`, `fulfillment_orders` and `tickets`, including lifecycle checks, source-order relationships and source-order-item uniqueness. Future worker schema changes belong in its V2 and subsequent migrations; the worker migration numbering is independent of the Sales API history.
+The worker owns an independent Flyway history in its own database. Its V1 creates `processed_messages`, `fulfillment_orders` and `tickets`, including lifecycle checks, source-order relationships and source-order-item uniqueness. V2 updates the `fulfillment_orders` lifecycle constraint for retryable `PENDING` and in-progress `PROCESSING` records. Future worker schema changes belong in V3 and subsequent migrations; the worker migration numbering is independent of the Sales API history.
 
-## Next stages: ticket delivery
+## Ticket delivery and future updates
 
-Development will continue in separate, focused work blocks. The asynchronous handoff from payment completion to worker-owned ticket persistence is complete. The worker already contains a standalone PDF generator for ticket payloads; the remaining work connects it to persisted tickets, email delivery and reliable fulfillment processing.
+The planned project flow is complete: a successful payment produces a durable fulfillment request, and the worker generates and emails the corresponding tickets. The following details describe the implemented delivery boundary and the optional work left for later.
 
 ### Implemented fulfillment boundary
 
@@ -512,19 +525,24 @@ The existing publisher delivers the message using broker confirms, returns, retr
 
 The contract contains all event and seat data required by the worker, so it never reads the Sales API database. Re-delivery of the same source message is a no-op after the first committed consumer transaction. Backfilling orders completed before this producer existed remains a separate recovery concern.
 
-The standalone `PDFGenerator` accepts a completed-order ticket payload and a destination directory. It produces one PDF for the order with an A5 page per ticket, including the worker-generated ticket ID and source order ID. A test verifies the page count and these IDs on every page. No fulfillment scheduler invokes the generator yet.
+The `PDFGenerator` accepts a completed-order ticket payload and a full output-file path. For each delivery attempt, it produces one PDF for the order with an A5 page per ticket, including the worker-generated ticket ID and source order ID. Tests verify the page count and these IDs on every page.
 
-### Remaining delivery pipeline
+### Fulfillment delivery pipeline
 
-The fulfillment lifecycle is `PENDING → PROCESSING → SENT / FAILED`. A new record starts with zero attempts and no processing timestamp. Once claimed, it remains `PROCESSING` across retryable delivery failures; `nextAttemptAt` and `lastError` describe a scheduled retry. `SENT` and `FAILED` are terminal states, and database constraints protect compatible field combinations.
+The fulfillment lifecycle is `PENDING → PROCESSING → SENT`, with `PROCESSING → PENDING` after a retryable failure and `PROCESSING → FAILED` when attempts are exhausted. A new record starts in `PENDING` with zero attempts. TX1 claims eligible records using `SKIP LOCKED`, increments `attemptCount`, clears the previous retry fields and moves them to `PROCESSING`. The scheduler limits simultaneous work with a semaphore and runs PDF generation and SMTP delivery outside the database transaction. Each attempt creates its own PDF; the sender attaches it to one email for the entire order.
 
-The remaining work is split into focused branches:
+TX2 records success as `SENT` with `deliveredAt`, or records the error and either schedules another `PENDING` attempt through `nextAttemptAt` or marks the order `FAILED`. A `PROCESSING` record left behind by an interrupted attempt becomes eligible again after the stale-processing timeout. TX1 can also mark a recovered record `FAILED` when its retry budget has already been exhausted. The PDF is deleted after a handled success or failure, independently of whether the failure-state update itself succeeded. Database constraints protect the compatible state combinations.
 
-1. Configure and implement email delivery with the generated PDF as an attachment, independently of scheduler orchestration.
-2. Add the scheduler and its short transactional boundaries for claiming work, generating or reusing the PDF, recording successful delivery and scheduling or exhausting retries.
-3. Address reconciliation/operator recovery and the known limitations above in separate changes.
-4. Add OpenAPI documentation when useful for presenting the project.
+Ticket persistence proves that the fulfillment request was consumed; only the later `SENT` state records that the worker completed its SMTP send call. External email delivery cannot be committed atomically with the worker database transaction, so a retry after an ambiguous send outcome can produce a duplicate email.
 
-Ticket persistence proves that the fulfillment request was consumed. The PDF generator is tested separately; automatic generation and email delivery are not yet part of the fulfillment flow.
+### Future updates
 
-This is a learning and portfolio project. The documented scope now includes payment, refund, reliable fulfillment publication and idempotent worker intake; end-to-end ticket delivery remains unfinished.
+- Ongoing maintenance and focused refactoring of naming, configuration and implementation details.
+- OpenAPI/Swagger documentation for the Sales API.
+- Query and index optimization based on measured workload.
+- Moving RabbitMQ queue, exchange and binding declarations into shared external broker configuration.
+- Event-specific seat-number prefixes instead of the current fixed `SEAT - [number]` pattern.
+- Reconciliation and operator recovery for payments, refunds and older fulfillment requests.
+- A separate cleanup scheduler that scans the PDF directory and removes files no longer used by any active delivery attempt.
+
+This is a learning and portfolio project. Its planned scope now includes payment, refunds, reliable fulfillment publication, idempotent worker intake, PDF generation and email delivery. The project is considered complete at this stage.
