@@ -1,7 +1,6 @@
 package pl.kacper.fulfillment_worker.io;
 
 import com.itextpdf.io.font.PdfEncodings;
-import com.itextpdf.io.font.constants.StandardFonts;
 import com.itextpdf.kernel.colors.DeviceRgb;
 import com.itextpdf.kernel.font.PdfFont;
 import com.itextpdf.kernel.font.PdfFontFactory;
@@ -17,11 +16,8 @@ import pl.kacper.exception.PDFException;
 import pl.kacper.exception.ResourcesNotFoundException;
 import pl.kacper.fulfillment_worker.domain.dto.CompletedOrderPdfPayload;
 
-import java.io.FileOutputStream;
 import java.io.IOException;
-import java.net.URI;
 import java.net.URL;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDate;
 import java.time.LocalTime;
@@ -75,10 +71,9 @@ public class PDFGenerator {
     public PDFGenerator() {
     }
 
-    public Path generateTicketPdf(CompletedOrderPdfPayload completedOrderPdfPayload, Path destinationPath) {
-        Path finalPath = buildPath(completedOrderPdfPayload, destinationPath);
+    public void generateTicketPdf(CompletedOrderPdfPayload completedOrderPdfPayload, Path finalPath) {
         try (
-                PdfDocument pdfDocument = initializeDocument(finalPath.toAbsolutePath().toString());
+                PdfDocument pdfDocument = initializeDocument(finalPath);
         ) {
             int counter = 1;
             Fonts fonts = createFonts();
@@ -106,7 +101,6 @@ public class PDFGenerator {
                 );
             }
         }
-        return finalPath;
     }
 
     private String buildStreet(String street, String no) {
@@ -133,21 +127,15 @@ public class PDFGenerator {
         }
     }
 
-    private PdfDocument initializeDocument(String filename) {
+    private PdfDocument initializeDocument(Path fullFilePath) {
         try {
-            PdfWriter pdfWriter = new PdfWriter(new FileOutputStream(filename, false));
+            PdfWriter pdfWriter = new PdfWriter(fullFilePath.toFile());
             return new PdfDocument(pdfWriter);
 
         } catch (IOException e) {
-            LOGGER.error("Cannot create output stream to file={}. Probably no permissions", filename);
-            throw new PDFException("Cannot write to file", e);
+            LOGGER.error("Cannot create output stream to file={}. Probably no permissions", fullFilePath);
+            throw new PDFException("Cannot write to file: " + e.getMessage(), e);
         }
-    }
-
-    private Path buildPath(CompletedOrderPdfPayload completedOrderPdfPayload, Path destinationPath) {
-        String filename = "tickets-" + completedOrderPdfPayload.orderId() + "::" + completedOrderPdfPayload.paidAt().toString() + ".pdf";
-        Path finalPath = destinationPath.resolve(filename);
-        return finalPath;
     }
 
     private static void drawTicket(PdfCanvas c, float width, float height,
@@ -159,16 +147,16 @@ public class PDFGenerator {
         rule(c, 28, height - 54, width - 28, height - 54, false);
 
         text(c, fonts.bold(), 8, ACCENT, 28, height - 82, t.category());
-        // The event title is the main visual anchor; split it across two lines.
+        // The event title is the main visual anchor
         drawTitle(c, fonts.bold(), width - 56, height, t.eventName());
 
         c.setFillColor(PALE).roundRectangle(28, height - 252, width - 56, 67, 7).fill();
         label(c, fonts, 41, height - 206, "DATA");
-        text(c, fonts.bold(), 13, DARK, 41, height - 233, t.date());
+        text(c, fonts.bold(), 11, DARK, 41, height - 233, t.date());
         label(c, fonts, 179, height - 206, "GODZINA");
-        text(c, fonts.bold(), 13, DARK, 179, height - 233, t.time());
+        text(c, fonts.bold(), 11, DARK, 179, height - 233, t.time());
         label(c, fonts, 295, height - 206, "MIEJSCE");
-        text(c, fonts.bold(), 18, ACCENT, 295, height - 233, t.seatNumber());
+        text(c, fonts.bold(), 11, ACCENT, 295, height - 233, t.seatNumber());
 
         label(c, fonts, 28, height - 283, "LOKALIZACJA");
         text(c, fonts.bold(), fittingSize(fonts.bold(), t.street(), width - 56, 10.5f, 8f),
@@ -191,7 +179,7 @@ public class PDFGenerator {
 
     private static void drawTitle(PdfCanvas c, PdfFont font, float maxWidth,
                                   float height, String eventName) {
-        for (float size = 30; size >= 18; size--) {
+        for (float size = 20; size >= 16; size--) {
             String[] lines = splitTitle(eventName, font, size, maxWidth);
             if (lines == null) continue;
             text(c, font, size, DARK, 28, height - 120, lines[0]);
