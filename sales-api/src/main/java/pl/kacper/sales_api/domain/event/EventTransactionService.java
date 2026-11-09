@@ -58,7 +58,7 @@ public class EventTransactionService {
                 eventEntity.getEventId(),
                 PriceValueCalculator.calculateZlotyToPennies(createEventRequestDto.seatPrice()),
                 createEventRequestDto.placesNumber(),
-                createEventRequestDto.name()
+                "SEAT"
         );
         String payloadJson = objectMapper.writeValueAsString(createdEventMessagePayloadDto);
         OutboxMessageEntity outboxMessageEntity = new OutboxMessageEntity(
