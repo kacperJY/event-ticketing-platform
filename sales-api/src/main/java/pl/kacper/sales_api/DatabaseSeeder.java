@@ -9,7 +9,7 @@ import pl.kacper.sales_api.domain.user.UserRepository;
 import pl.kacper.sales_api.domain.user.dto.UserRegisterDto;
 
 @Component
-@Profile("dev")
+@Profile({"dev","demo"})
 public class DatabaseSeeder implements CommandLineRunner {
 
     private final UserRepository userRepository;
