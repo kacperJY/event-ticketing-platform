@@ -1,0 +1,94 @@
+services:
+  demo-event-ticketing-platform-sales-api-db:
+    image: postgres:17.10
+    container_name: "demo-event-ticketing-platform-sales-api-db"
+    volumes:
+      - demo-sales-api-db-volume:/var/lib/postgresql/data
+    networks:
+      - demo-sales-api-db-network
+    environment:
+      - "POSTGRES_DB=demo-event-ticketing-platform-sales-api-db"
+      - "POSTGRES_USER=demo"
+      - "POSTGRES_PASSWORD=demo"
+    healthcheck:
+      test: [ "CMD-SHELL", "sh -c 'pg_isready -U demo -d demo-event-ticketing-platform-sales-api-db'" ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  demo-event-ticketing-platform-fulfillment-worker-db:
+    image: postgres:17.10
+    container_name: "demo-event-ticketing-platform-fulfillment-worker-db"
+    volumes:
+      - demo-fulfillment-worker-db-volume:/var/lib/postgresql/data
+    networks:
+      - demo-fulfillment-worker-db-network
+    environment:
+      - "POSTGRES_DB=demo-event-ticketing-platform-fulfillment-worker-db"
+      - "POSTGRES_USER=demo"
+      - "POSTGRES_PASSWORD=demo"
+    healthcheck:
+      test: [ "CMD-SHELL", "sh -c 'pg_isready -U demo -d demo-event-ticketing-platform-fulfillment-worker-db'" ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  demo-event-ticketing-platform-message-broker:
+    image: rabbitmq:4.3.2-management
+    container_name: "demo-event-ticketing-platform-message-broker"
+    environment:
+      - "RABBITMQ_DEFAULT_USER=demo"
+      - "RABBITMQ_DEFAULT_PASS=demo"
+    volumes:
+      - demo-message-broker-volume:/var/lib/rabbitmq
+    networks:
+      - demo-broker-network
+    healthcheck:
+      test: [ "CMD-SHELL", "rabbitmq-diagnostics check_port_connectivity" ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  demo-event-ticketing-platform-sales-api:
+    build: ./sales-api
+    image: kacperjn/sales-api
+    container_name: "demo-event-ticketing-platform-sales-api"
+    pull_policy: build
+    networks:
+      - demo-sales-api-db-network
+      - demo-broker-network
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      - "SPRING_PROFILES_ACTIVE=demo"
+    depends_on:
+      demo-event-ticketing-platform-sales-api-db:
+        condition: service_healthy
+      demo-event-ticketing-platform-message-broker:
+        condition: service_healthy
+
+  demo-event-ticketing-platform-fulfillment-worker:
+    build: ./fulfillment-worker
+    image: kacperjn/fulfillment-worker
+    container_name: "demo-event-ticketing-platform-fulfillment-worker"
+    pull_policy: build
+    networks:
+      - demo-fulfillment-worker-db-network
+      - demo-broker-network
+    environment:
+      - "SPRING_PROFILES_ACTIVE=demo"
+    depends_on:
+      demo-event-ticketing-platform-fulfillment-worker-db:
+        condition: service_healthy
+      demo-event-ticketing-platform-message-broker:
+        condition: service_healthy
+
+volumes:
+  demo-sales-api-db-volume:
+  demo-message-broker-volume:
+  demo-fulfillment-worker-db-volume:
+
+networks:
+  demo-sales-api-db-network:
+  demo-fulfillment-worker-db-network:
+  demo-broker-network:

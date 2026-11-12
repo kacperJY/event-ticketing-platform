@@ -1,0 +1,26 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://demo-event-ticketing-platform-sales-api-db:5432/demo-event-ticketing-platform-sales-api-db
+    username: demo
+    password: demo
+
+  jpa:
+    show-sql: false
+    properties:
+      hibernate:
+        generate_statistics: false
+
+  rabbitmq:
+    username: demo
+    password: demo
+    port: 5672
+    host: demo-event-ticketing-platform-message-broker
+
+jwt-secret-key: LhSHhu4ylfQUUsbrbkdb6dPXzs5Gl98opGZWUJG2Exz
+
+server:
+  port: 8080
+
+stripe:
+  secret-key: sk_test_demo
+  webhook-secret: whsec_demo

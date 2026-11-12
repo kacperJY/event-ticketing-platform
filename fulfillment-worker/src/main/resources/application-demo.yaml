@@ -1,0 +1,29 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://demo-event-ticketing-platform-fulfillment-worker-db:5432/demo-event-ticketing-platform-fulfillment-worker-db
+    username: demo
+    password: demo
+
+  jpa:
+    show-sql: false
+    properties:
+      hibernate:
+        generate_statistics: false
+
+  rabbitmq:
+    username: demo
+    password: demo
+    port: 5672
+    host: demo-event-ticketing-platform-message-broker
+
+  mail:
+    username: demo
+    password: demo
+    port: 26
+    host: localhost
+
+mail-config:
+  from: demo1
+
+order-completion:
+  pdf-files-path: /opt/ticketing/pdfs/
