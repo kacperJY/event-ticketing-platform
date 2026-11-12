@@ -87,7 +87,27 @@ Design details, per-flow guarantees and known limitations: **[docs/ARCHITECTURE.
 
 Java 25, Spring Boot 4.1.0, Spring MVC, Security, Data JPA/Hibernate, AMQP, Bean Validation, Flyway, Stripe Java SDK 33.4.0, JJWT, PostgreSQL and RabbitMQ. The application enables virtual threads. Tests use JUnit, Mockito, AssertJ, MockMvc and Testcontainers.
 
-## Quick start
+## Run the demo
+
+Requirements: Docker with Compose. No Java, Stripe account or configuration files are needed: the demo stack is self-contained (own PostgreSQL databases, RabbitMQ and both applications, with demo-only credentials).
+
+```bash
+git clone https://github.com/kacperJY/event-ticketing-platform.git
+cd event-ticketing-platform
+docker compose -f compose.demo.yaml up --build
+```
+
+The first start compiles both modules inside Docker and takes a few minutes. The API is then available at `http://localhost:8080` (published on localhost only; the databases and the broker are not exposed). Use the seeded accounts and the requests from [Try it](#try-it). To stop the demo and delete its data:
+
+```bash
+docker compose -f compose.demo.yaml down -v
+```
+
+**What the demo covers:** JWT authentication with roles, event creation by an administrator, asynchronous seat generation (transactional outbox → RabbitMQ → consumer), the event catalog with available-seat counts, order creation with concurrent seat locking and order expiration.
+
+**What it does not cover:** payments, refunds, ticket PDFs and email delivery. They require a Stripe sandbox, the Stripe CLI and SMTP credentials. In the demo the Stripe credentials are placeholders, so `POST /api/v1/order/{order_id}/payment-intent` responds with `503 Service Unavailable` (`Could not initialize payment`), and without a completed payment nothing is published to the fulfillment worker. The full flow is available through the development setup below.
+
+## Development setup (full flow)
 
 Requirements: Java 25, Docker with Compose, a Stripe sandbox and the [Stripe CLI](https://docs.stripe.com/stripe-cli). SMTP credentials are needed only for the worker's email delivery. Maven is supplied by the wrapper.
 
@@ -114,7 +134,7 @@ Secrets, the Stripe CLI listener, the worker's SMTP settings and the fully conta
 
 ### Try it
 
-The DEV profile seeds `admin@gmail.com` / `Admin123` and `user@gmail.com` / `User123`. The login endpoint returns the ready-to-use `Authorization` header value.
+The `dev` and `demo` profiles seed `admin@gmail.com` / `Admin123` and `user@gmail.com` / `User123`. The login endpoint returns the ready-to-use `Authorization` header value.
 
 ```bash
 # log in as the seeded admin
