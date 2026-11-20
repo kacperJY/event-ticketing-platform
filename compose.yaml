@@ -16,6 +16,8 @@ services:
       test: [ "CMD-SHELL", "sh -c 'pg_isready -U ${SALES_API_POSTGRES_USER} -d ${SALES_API_POSTGRES_DB}'" ]
       interval: 30s
       timeout: 10s
+      start_interval: 1s
+      start_period: 60s
       retries: 5
     profiles: ["prod","dev"]
 
@@ -36,6 +38,8 @@ services:
       test: [ "CMD-SHELL", "sh -c 'pg_isready -U ${FULFILLMENT_WORKER_POSTGRES_USER} -d ${FULFILLMENT_WORKER_POSTGRES_DB}'" ]
       interval: 30s
       timeout: 10s
+      start_interval: 1s
+      start_period: 60s
       retries: 5
     profiles: [ "prod","dev" ]
 
@@ -57,6 +61,8 @@ services:
     healthcheck:
       test: [ "CMD-SHELL", "rabbitmq-diagnostics check_port_connectivity" ]
       interval: 30s
+      start_interval: 2s
+      start_period: 80s
       timeout: 10s
       retries: 5
     profiles: ["prod","dev"]

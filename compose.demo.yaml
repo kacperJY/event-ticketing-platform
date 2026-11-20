@@ -14,6 +14,8 @@ services:
       test: [ "CMD-SHELL", "sh -c 'pg_isready -U demo -d demo-event-ticketing-platform-sales-api-db'" ]
       interval: 30s
       timeout: 10s
+      start_interval: 1s
+      start_period: 20s
       retries: 5
 
   demo-event-ticketing-platform-fulfillment-worker-db:
@@ -31,6 +33,8 @@ services:
       test: [ "CMD-SHELL", "sh -c 'pg_isready -U demo -d demo-event-ticketing-platform-fulfillment-worker-db'" ]
       interval: 30s
       timeout: 10s
+      start_interval: 1s
+      start_period: 20s
       retries: 5
 
   demo-event-ticketing-platform-message-broker:
@@ -47,6 +51,8 @@ services:
       test: [ "CMD-SHELL", "rabbitmq-diagnostics check_port_connectivity" ]
       interval: 30s
       timeout: 10s
+      start_interval: 2s
+      start_period: 60s
       retries: 5
 
   demo-event-ticketing-platform-sales-api:
